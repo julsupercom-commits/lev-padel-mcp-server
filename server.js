@@ -81,8 +81,7 @@ function createMcpServer() {
       name: z.string().describe("Ім'я клієнта"),
       phone: z
         .string()
-        .optional()
-        .describe("Номер телефону клієнта, наприклад +380501234567"),
+        .describe("Номер телефону клієнта (обов'язково), наприклад +380501234567"),
       notes: z
         .string()
         .optional()
@@ -116,11 +115,8 @@ function createMcpServer() {
           "Api-Key": LUCKYFIT_API_KEY,
         };
 
-        const INFO_SOURCE_ID = parseInt(process.env.INFO_SOURCE_ID || "0");
-        const body = { ...baseBody };
-        if (INFO_SOURCE_ID > 0) {
-          body.info_source_id = INFO_SOURCE_ID;
-        }
+        // Instagram info_source_id = 8284 in LuckyFit CRM
+        const body = { ...baseBody, info_source_id: 8284 };
 
         const res = await fetch(LUCKYFIT_API, {
           method: "POST",
