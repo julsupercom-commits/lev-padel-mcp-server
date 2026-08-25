@@ -12,6 +12,8 @@ const RAILWAY_API =
   "https://lev-padel-admin.up.railway.app/api/public/availability";
 const LUCKYFIT_API = "https://my.lucky.fitness/api/leads";
 const LUCKYFIT_API_KEY = process.env.LUCKYFIT_API_KEY || "";
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "8701730693:AAGh4jbnSQn5gRDSZ-Oc8RtY5KcgFrtKPjw";
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "-5388739834";
 
 // ─── Express app ──────────────────────────────────────────
 const app = express();
@@ -232,6 +234,40 @@ app.post("/message", async (req, res) => {
   }
 
   await transport.handlePostMessage(req, res);
+});
+
+// ─── Telegram notification endpoint (for SendPulse webhook) ───
+app.post("/notify", async (req, res) => {
+  try {
+    const data = req.body || {};
+    const name = data.name || data.contact_name || data.first_name || "Невідомий";
+    const username = data.username || data.instagram_username || "";
+
+    let text = `🎾 <b>Новий запит з Instagram!</b>\n\n`;
+    text += `👤 Клієнт: ${name}\n`;
+    if (username) text += `📱 Instagram: @${username}\n`;
+    text += `\n⚡ Клієнт потребує уваги — перевірте чат у SendPulse та надішліть актуальні реквізити.`;
+
+    const tgRes = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: TELEGRAM_CHAT_ID,
+          text,
+          parse_mode: "HTML",
+        }),
+      }
+    );
+
+    const tgData = await tgRes.json();
+    console.log("[Telegram] Notification sent:", tgData.ok);
+    res.json({ ok: true, telegram: tgData.ok });
+  } catch (err) {
+    console.error("[Telegram] Error:", err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // Also support /mcp endpoint (alternative path)
