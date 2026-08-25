@@ -104,65 +104,31 @@ function createMcpServer() {
       }
 
       try {
-        const body = {
+        const baseBody = {
           name,
           ...(phone && { phone }),
           ...(notes && { notes }),
           platform: "instagram",
-          info_source: "Instagram",
         };
 
-        // Try primary request with info_source text
         const headers = {
           "Content-Type": "application/json",
           "Api-Key": LUCKYFIT_API_KEY,
         };
 
-        let res = await fetch(LUCKYFIT_API, {
+        const INFO_SOURCE_ID = parseInt(process.env.INFO_SOURCE_ID || "0");
+        const body = { ...baseBody };
+        if (INFO_SOURCE_ID > 0) {
+          body.info_source_id = INFO_SOURCE_ID;
+        }
+
+        const res = await fetch(LUCKYFIT_API, {
           method: "POST",
           headers,
           body: JSON.stringify(body),
         });
 
-        let data = await res.json();
-
-        // If info_source text fails, try info_source_id with numeric values
-        if (data.success === false && data.error && data.error.includes("Info source")) {
-          console.log("[CRM] info_source text failed, trying info_source_id...");
-          const { info_source, ...bodyWithoutSource } = body;
-          // Try IDs 1-6 to find the Instagram source
-          for (const id of [4, 5, 6, 1, 2, 3]) {
-            const retryBody = { ...bodyWithoutSource, info_source_id: id };
-            const retryRes = await fetch(LUCKYFIT_API, {
-              method: "POST",
-              headers,
-              body: JSON.stringify(retryBody),
-            });
-            const retryData = await retryRes.json();
-            if (retryData.success !== false) {
-              console.log(`[CRM] Success with info_source_id=${id}`);
-              data = retryData;
-              break;
-            }
-            if (retryData.error && !retryData.error.includes("Info source")) {
-              // Different error — stop trying
-              data = retryData;
-              break;
-            }
-          }
-        }
-
-        if (!res.ok && data.success !== false) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Помилка CRM (${res.status}): ${JSON.stringify(data)}`,
-              },
-            ],
-            isError: true,
-          };
-        }
+        const data = await res.json();
 
         if (data.success === false) {
           return {
@@ -174,7 +140,18 @@ function createMcpServer() {
             ],
             isError: true,
           };
+        } else if (!data) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Помилка CRM: не вдалося створити лід. Передай клієнта адміністратору.`,
+              },
+            ],
+            isError: true,
+          };
         }
+
         return {
           content: [
             {
@@ -275,6 +252,48 @@ app.post("/message", async (req, res) => {
   }
 
   await transport.handlePostMessage(req, res);
+});
+
+// ─── Debug: find info_source IDs ──────────────────────────
+app.get("/debug/info-sources", async (_req, res) => {
+  const headers = { "Api-Key": LUCKYFIT_API_KEY, "Content-Type": "application/json" };
+  const results = [];
+
+  // Try common API endpoints for info sources
+  for (const path of ["/api/info_sources", "/api/settings/info_sources", "/api/fitness_info_sources", "/api/lead_sources"]) {
+    try {
+      const r = await fetch(`https://my.lucky.fitness${path}`, { headers });
+      const d = await r.json();
+      results.push({ path, status: r.status, data: d });
+    } catch (e) {
+      results.push({ path, error: e.message });
+    }
+  }
+
+  // Also probe which info_source_ids are valid by checking foreign key
+  const validIds = [];
+  for (let id = 1; id <= 30; id++) {
+    try {
+      // Use a dry-run approach: send minimal data that will fail on OTHER validation (no phone)
+      // but won't fail on info_source if ID is valid
+      const r = await fetch("https://my.lucky.fitness/api/leads", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: `_probe_${id}`, info_source_id: id }),
+      });
+      const d = await r.json();
+      const err = d.error || "";
+      if (err.includes("foreign key") || err.includes("Info source")) {
+        // ID doesn't exist
+      } else {
+        validIds.push({ id, error: err || "VALID (other validation)" });
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  res.json({ endpoints: results, validInfoSourceIds: validIds });
 });
 
 // ─── Telegram notification endpoint (for SendPulse webhook) ───
