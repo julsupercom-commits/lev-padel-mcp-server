@@ -2,7 +2,9 @@ import express from "express";
 import cors from "cors";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 
 // ─── Config ───────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
@@ -14,6 +16,7 @@ const LUCKYFIT_API_KEY = process.env.LUCKYFIT_API_KEY || "";
 // ─── Express app ──────────────────────────────────────────
 const app = express();
 app.use(cors());
+app.use(express.json());
 
 // Health check
 app.get("/", (_req, res) => {
@@ -154,26 +157,75 @@ function createMcpServer() {
   return server;
 }
 
-// ─── SSE transport ────────────────────────────────────────
-const sessions = {};
+// ─── Streamable HTTP transport (POST /sse) ────────────────
+const httpSessions = new Map();
 
+app.post("/sse", async (req, res) => {
+  const sessionId = req.headers["mcp-session-id"];
+
+  if (sessionId && httpSessions.has(sessionId)) {
+    const { transport } = httpSessions.get(sessionId);
+    await transport.handleRequest(req, res, req.body);
+    return;
+  }
+
+  // New session
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+  });
+
+  const server = createMcpServer();
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
+
+  // Store session for reuse
+  if (transport.sessionId) {
+    httpSessions.set(transport.sessionId, { transport, server });
+  }
+});
+
+// Handle GET for SSE stream (Streamable HTTP spec)
 app.get("/sse", async (req, res) => {
-  console.log("[MCP] New SSE connection");
+  const sessionId = req.headers["mcp-session-id"];
+
+  if (sessionId && httpSessions.has(sessionId)) {
+    const { transport } = httpSessions.get(sessionId);
+    await transport.handleRequest(req, res);
+    return;
+  }
+
+  // Fallback: legacy SSE transport
+  console.log("[MCP] New legacy SSE connection");
   const transport = new SSEServerTransport("/message", res);
-  sessions[transport.sessionId] = transport;
+  const sseSessions = app.locals.sseSessions || {};
+  sseSessions[transport.sessionId] = transport;
+  app.locals.sseSessions = sseSessions;
 
   res.on("close", () => {
-    console.log(`[MCP] SSE closed: ${transport.sessionId}`);
-    delete sessions[transport.sessionId];
+    delete sseSessions[transport.sessionId];
   });
 
   const server = createMcpServer();
   await server.connect(transport);
 });
 
-app.post("/message", express.json(), async (req, res) => {
+// Handle DELETE for session cleanup
+app.delete("/sse", async (req, res) => {
+  const sessionId = req.headers["mcp-session-id"];
+  if (sessionId && httpSessions.has(sessionId)) {
+    const { transport } = httpSessions.get(sessionId);
+    await transport.handleRequest(req, res);
+    httpSessions.delete(sessionId);
+    return;
+  }
+  res.status(404).json({ error: "Session not found" });
+});
+
+// Legacy SSE message endpoint
+app.post("/message", async (req, res) => {
   const sessionId = req.query.sessionId;
-  const transport = sessions[sessionId];
+  const sseSessions = app.locals.sseSessions || {};
+  const transport = sseSessions[sessionId];
 
   if (!transport) {
     return res.status(404).json({ error: "Session not found" });
@@ -182,9 +234,55 @@ app.post("/message", express.json(), async (req, res) => {
   await transport.handlePostMessage(req, res);
 });
 
+// Also support /mcp endpoint (alternative path)
+app.post("/mcp", async (req, res) => {
+  const sessionId = req.headers["mcp-session-id"];
+
+  if (sessionId && httpSessions.has(sessionId)) {
+    const { transport } = httpSessions.get(sessionId);
+    await transport.handleRequest(req, res, req.body);
+    return;
+  }
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+  });
+
+  const server = createMcpServer();
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
+
+  if (transport.sessionId) {
+    httpSessions.set(transport.sessionId, { transport, server });
+  }
+});
+
+app.get("/mcp", async (req, res) => {
+  const sessionId = req.headers["mcp-session-id"];
+  if (sessionId && httpSessions.has(sessionId)) {
+    const { transport } = httpSessions.get(sessionId);
+    await transport.handleRequest(req, res);
+    return;
+  }
+  res.status(400).json({ error: "No active session. Send POST first." });
+});
+
+app.delete("/mcp", async (req, res) => {
+  const sessionId = req.headers["mcp-session-id"];
+  if (sessionId && httpSessions.has(sessionId)) {
+    const { transport } = httpSessions.get(sessionId);
+    await transport.handleRequest(req, res);
+    httpSessions.delete(sessionId);
+    return;
+  }
+  res.status(404).json({ error: "Session not found" });
+});
+
 // ─── Start ────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`✅ Lev Padel MCP server running on port ${PORT}`);
-  console.log(`   SSE endpoint: http://localhost:${PORT}/sse`);
+  console.log(`   Streamable HTTP: /sse (POST/GET/DELETE)`);
+  console.log(`   Alternative:     /mcp (POST/GET/DELETE)`);
+  console.log(`   Legacy SSE:      GET /sse + POST /message`);
   console.log(`   LuckyFit API key: ${LUCKYFIT_API_KEY ? "configured" : "⚠️ NOT SET"}`);
 });
