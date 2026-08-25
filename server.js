@@ -109,32 +109,61 @@ function createMcpServer() {
           ...(phone && { phone }),
           ...(notes && { notes }),
           platform: "instagram",
-          info_source: "Instagram DM бот",
+          info_source: "Instagram",
         };
 
-        const res = await fetch(LUCKYFIT_API, {
+        // Try primary request with info_source text
+        const headers = {
+          "Content-Type": "application/json",
+          "Api-Key": LUCKYFIT_API_KEY,
+        };
+
+        let res = await fetch(LUCKYFIT_API, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Api-Key": LUCKYFIT_API_KEY,
-          },
+          headers,
           body: JSON.stringify(body),
         });
 
-        if (!res.ok) {
-          const errText = await res.text();
+        let data = await res.json();
+
+        // If info_source text fails, try info_source_id with numeric values
+        if (data.success === false && data.error && data.error.includes("Info source")) {
+          console.log("[CRM] info_source text failed, trying info_source_id...");
+          const { info_source, ...bodyWithoutSource } = body;
+          // Try IDs 1-6 to find the Instagram source
+          for (const id of [4, 5, 6, 1, 2, 3]) {
+            const retryBody = { ...bodyWithoutSource, info_source_id: id };
+            const retryRes = await fetch(LUCKYFIT_API, {
+              method: "POST",
+              headers,
+              body: JSON.stringify(retryBody),
+            });
+            const retryData = await retryRes.json();
+            if (retryData.success !== false) {
+              console.log(`[CRM] Success with info_source_id=${id}`);
+              data = retryData;
+              break;
+            }
+            if (retryData.error && !retryData.error.includes("Info source")) {
+              // Different error — stop trying
+              data = retryData;
+              break;
+            }
+          }
+        }
+
+        if (!res.ok && data.success !== false) {
           return {
             content: [
               {
                 type: "text",
-                text: `Помилка CRM (${res.status}): ${errText}`,
+                text: `Помилка CRM (${res.status}): ${JSON.stringify(data)}`,
               },
             ],
             isError: true,
           };
         }
 
-        const data = await res.json();
         if (data.success === false) {
           return {
             content: [
