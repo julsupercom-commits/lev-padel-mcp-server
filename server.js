@@ -109,6 +109,7 @@ function createMcpServer() {
           ...(phone && { phone }),
           ...(notes && { notes }),
           platform: "instagram",
+          info_source: "Instagram DM бот",
         };
 
         const res = await fetch(LUCKYFIT_API, {
@@ -134,11 +135,22 @@ function createMcpServer() {
         }
 
         const data = await res.json();
+        if (data.success === false) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Помилка CRM: ${data.error || "невідома помилка"}. Передай клієнта адміністратору для ручного бронювання.`,
+              },
+            ],
+            isError: true,
+          };
+        }
         return {
           content: [
             {
               type: "text",
-              text: `Лід успішно створено в CRM. ID: ${data.id || "ok"}. Деталі: ${JSON.stringify(data)}`,
+              text: `Лід успішно створено в CRM! Заявка зафіксована. Деталі: ${JSON.stringify(data)}`,
             },
           ],
         };
