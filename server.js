@@ -126,33 +126,69 @@ function createMcpServer() {
 
         const data = await res.json();
 
-        if (data.success === false) {
+        if (data.success === false || !data) {
+          // CRM failed — still notify Telegram so admin sees the request
+          const errMsg = data?.error || "невідома помилка";
+          try {
+            let tgText = `🎾 <b>Нова заявка з Instagram!</b>\n\n`;
+            tgText += `👤 Клієнт: ${name}\n`;
+            if (phone) tgText += `📱 Телефон: ${phone}\n`;
+            if (notes) tgText += `📝 ${notes}\n`;
+            tgText += `\n⚠️ CRM помилка: ${errMsg}\nСтворіть лід вручну!`;
+
+            await fetch(
+              `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: tgText, parse_mode: "HTML" }),
+              }
+            );
+          } catch (tgErr) {
+            console.error("[Telegram] Fallback failed:", tgErr.message);
+          }
+
           return {
             content: [
               {
                 type: "text",
-                text: `Помилка CRM: ${data.error || "невідома помилка"}. Передай клієнта адміністратору для ручного бронювання.`,
-              },
-            ],
-            isError: true,
-          };
-        } else if (!data) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Помилка CRM: не вдалося створити лід. Передай клієнта адміністратору.`,
+                text: `Помилка CRM, але адміністратор отримав сповіщення і обробить заявку. Передай клієнта адміністратору.`,
               },
             ],
             isError: true,
           };
         }
 
+        // Send Telegram notification automatically
+        try {
+          let tgText = `🎾 <b>Нова заявка з Instagram!</b>\n\n`;
+          tgText += `👤 Клієнт: ${name}\n`;
+          if (phone) tgText += `📱 Телефон: ${phone}\n`;
+          if (notes) tgText += `📝 ${notes}\n`;
+          tgText += `\n⚡ Перевірте CRM та надішліть реквізити клієнту.`;
+
+          await fetch(
+            `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: TELEGRAM_CHAT_ID,
+                text: tgText,
+                parse_mode: "HTML",
+              }),
+            }
+          );
+          console.log("[Telegram] Auto-notification sent for lead");
+        } catch (tgErr) {
+          console.error("[Telegram] Failed to send notification:", tgErr.message);
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: `Лід успішно створено в CRM! Заявка зафіксована. Деталі: ${JSON.stringify(data)}`,
+              text: `Лід успішно створено в CRM! Заявка зафіксована. Адміністратор отримав сповіщення в Telegram.`,
             },
           ],
         };
