@@ -82,6 +82,10 @@ function createMcpServer() {
       phone: z
         .string()
         .describe("Номер телефону клієнта (обов'язково), наприклад +380501234567"),
+      instagram: z
+        .string()
+        .optional()
+        .describe("Instagram нік клієнта (без @), наприклад natalia_kornutiak"),
       notes: z
         .string()
         .optional()
@@ -89,7 +93,7 @@ function createMcpServer() {
           "Деталі бронювання: дата, час, номер корту, кількість гравців"
         ),
     },
-    async ({ name, phone, notes }) => {
+    async ({ name, phone, instagram, notes }) => {
       if (!LUCKYFIT_API_KEY) {
         return {
           content: [
@@ -130,11 +134,12 @@ function createMcpServer() {
           // CRM failed — still notify Telegram so admin sees the request
           const errMsg = data?.error || "невідома помилка";
           try {
-            let tgText = `🎾 <b>Нова заявка з Instagram!</b>\n\n`;
+            let tgText = `🎾 <b>Нове звернення з Instagram!</b>\n\n`;
             tgText += `👤 Клієнт: ${name}\n`;
             if (phone) tgText += `📱 Телефон: ${phone}\n`;
-            if (notes) tgText += `📝 ${notes}\n`;
-            tgText += `\n⚠️ CRM помилка: ${errMsg}\nСтворіть лід вручну!`;
+            if (instagram) tgText += `📸 Instagram: @${instagram}\n`;
+            if (notes) tgText += `\n📝 ${notes}\n`;
+            tgText += `\n⚠️ CRM помилка: ${errMsg}\n⚡ Потребує уваги адміністратора — створіть лід вручну!`;
 
             await fetch(
               `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
@@ -161,11 +166,12 @@ function createMcpServer() {
 
         // Send Telegram notification automatically
         try {
-          let tgText = `🎾 <b>Нове бронювання з Instagram!</b>\n\n`;
+          let tgText = `🎾 <b>Нове звернення з Instagram!</b>\n\n`;
           tgText += `👤 Клієнт: ${name}\n`;
           if (phone) tgText += `📱 Телефон: ${phone}\n`;
-          if (notes) tgText += `📝 ${notes}\n`;
-          tgText += `\n💳 Реквізити надіслано клієнту — чекаємо оплату.`;
+          if (instagram) tgText += `📸 Instagram: @${instagram}\n`;
+          if (notes) tgText += `\n📝 ${notes}\n`;
+          tgText += `\n⚡ Потребує уваги адміністратора.`;
 
           await fetch(
             `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
