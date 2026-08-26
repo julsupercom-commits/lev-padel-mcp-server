@@ -161,11 +161,11 @@ function createMcpServer() {
 
         // Send Telegram notification automatically
         try {
-          let tgText = `🎾 <b>Нова заявка з Instagram!</b>\n\n`;
+          let tgText = `🎾 <b>Нове бронювання з Instagram!</b>\n\n`;
           tgText += `👤 Клієнт: ${name}\n`;
           if (phone) tgText += `📱 Телефон: ${phone}\n`;
           if (notes) tgText += `📝 ${notes}\n`;
-          tgText += `\n⚡ Перевірте CRM та надішліть реквізити клієнту.`;
+          tgText += `\n💳 Реквізити надіслано клієнту — чекаємо оплату.`;
 
           await fetch(
             `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
