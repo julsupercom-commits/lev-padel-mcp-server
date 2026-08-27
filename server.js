@@ -6,6 +6,23 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { randomUUID } from "crypto";
 
+// ─── Anti-duplicate: track recent Telegram notifications ──
+const recentNotifications = new Map(); // phone -> timestamp
+const NOTIFICATION_COOLDOWN = 60 * 60 * 1000; // 1 hour in ms
+
+function shouldSendNotification(phone) {
+  const now = Date.now();
+  // Clean old entries
+  for (const [key, time] of recentNotifications) {
+    if (now - time > NOTIFICATION_COOLDOWN) recentNotifications.delete(key);
+  }
+  if (!phone) return true;
+  const lastSent = recentNotifications.get(phone);
+  if (lastSent && now - lastSent < NOTIFICATION_COOLDOWN) return false;
+  recentNotifications.set(phone, now);
+  return true;
+}
+
 // ─── Config ───────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 const RAILWAY_API =
@@ -78,7 +95,7 @@ function createMcpServer() {
     "create_lead",
     "Створити нового ліда (заявку на бронювання) в CRM LuckyFit. Викликати після того як клієнт підтвердив бронювання та надав контактні дані.",
     {
-      name: z.string().describe("Ім'я клієнта"),
+      name: z.string().describe("Ім'я клієнта (ім'я та прізвище)"),
       phone: z
         .string()
         .describe("Номер телефону клієнта (обов'язково), наприклад +380501234567"),
@@ -164,8 +181,10 @@ function createMcpServer() {
           };
         }
 
-        // Send Telegram notification automatically
-        try {
+        // Send Telegram notification (with anti-duplicate check)
+        if (!shouldSendNotification(phone)) {
+          console.log(`[Telegram] Skipped duplicate notification for ${phone}`);
+        } else try {
           let tgText = `🎾 <b>Нове звернення з Instagram!</b>\n\n`;
           tgText += `👤 Клієнт: ${name}\n`;
           if (phone) tgText += `📱 Телефон: ${phone}\n`;
