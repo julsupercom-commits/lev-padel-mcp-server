@@ -152,11 +152,11 @@ function createMcpServer() {
           const errMsg = data?.error || "невідома помилка";
           try {
             let tgText = `🎾 <b>Нове звернення з Instagram!</b>\n\n`;
+            if (notes) tgText += `📝 ${notes}\n\n`;
             tgText += `👤 Клієнт: ${name}\n`;
             if (phone) tgText += `📱 Телефон: ${phone}\n`;
             if (instagram) tgText += `📸 Instagram: @${instagram}\n`;
-            if (notes) tgText += `\n📝 ${notes}\n`;
-            tgText += `\n⚠️ CRM помилка: ${errMsg}\n⚡ Потребує уваги адміністратора — створіть лід вручну!`;
+            tgText += `\n⚠️ CRM помилка: ${errMsg}\n⚡️ Потребує уваги адміністратора — створіть лід вручну!`;
 
             await fetch(
               `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
@@ -186,11 +186,11 @@ function createMcpServer() {
           console.log(`[Telegram] Skipped duplicate notification for ${phone}`);
         } else try {
           let tgText = `🎾 <b>Нове звернення з Instagram!</b>\n\n`;
+          if (notes) tgText += `📝 ${notes}\n\n`;
           tgText += `👤 Клієнт: ${name}\n`;
           if (phone) tgText += `📱 Телефон: ${phone}\n`;
           if (instagram) tgText += `📸 Instagram: @${instagram}\n`;
-          if (notes) tgText += `\n📝 ${notes}\n`;
-          tgText += `\n⚡ Потребує уваги адміністратора.`;
+          tgText += `\n⚡️ Потребує уваги адміністратора.`;
 
           await fetch(
             `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
