@@ -124,10 +124,13 @@ function createMcpServer() {
       }
 
       try {
+        // Strip emoji from notes for CRM (MySQL doesn't support 4-byte UTF-8)
+        const cleanNotes = notes ? notes.replace(/[\u{1F000}-\u{1FFFF}]|[\u{2600}-\u{27BF}]|[\u{FE00}-\u{FEFF}]|[\u{1F900}-\u{1F9FF}]|[\u{200D}\u{20E3}\u{FE0F}]/gu, '').replace(/\s{2,}/g, ' ').trim() : undefined;
+
         const baseBody = {
           name,
           ...(phone && { phone }),
-          ...(notes && { notes }),
+          ...(cleanNotes && { notes: cleanNotes }),
           platform: "instagram",
         };
 
@@ -156,7 +159,7 @@ function createMcpServer() {
             tgText += `👤 Клієнт: ${name}\n`;
             if (phone) tgText += `📱 Телефон: ${phone}\n`;
             if (instagram) tgText += `📸 Instagram: @${instagram}\n`;
-            tgText += `\n⚠️ CRM помилка: ${errMsg}\n⚡️ Потребує уваги адміністратора — створіть лід вручну!`;
+            tgText += `\n⚠️ CRM помилка\n⚡️ Потребує уваги адміністратора — створіть лід вручну!`;
 
             await fetch(
               `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
@@ -185,8 +188,27 @@ function createMcpServer() {
         if (!shouldSendNotification(phone)) {
           console.log(`[Telegram] Skipped duplicate notification for ${phone}`);
         } else try {
+          // Build pretty Telegram message with emoji (notes come plain from CRM)
           let tgText = `🎾 <b>Нове звернення з Instagram!</b>\n\n`;
-          if (notes) tgText += `📝 ${notes}\n\n`;
+
+          // Parse notes to extract booking details for pretty formatting
+          if (notes) {
+            // Try to parse structured booking notes: "Instagram DM | Бронювання: Court 7, 30.08.2026 о 12:00-13:00. До оплати: 1200 грн"
+            const bookingMatch = notes.match(/Бронювання:\s*(.+?),\s*(.+?)\s*о\s*(.+?)\.\s*До оплати:\s*(.+)/i);
+            const trainingMatch = notes.match(/ТЕРМІНОВО/i);
+
+            if (bookingMatch) {
+              tgText += `📝 Instagram DM | Бронювання\n`;
+              tgText += `📅 Дата: ${bookingMatch[2]}\n`;
+              tgText += `🏟 Корт: ${bookingMatch[1]} о ${bookingMatch[3]}\n`;
+              tgText += `💰 До оплати: ${bookingMatch[4]}\n\n`;
+            } else if (trainingMatch) {
+              tgText += `📝 ${notes}\n\n`;
+            } else {
+              tgText += `📝 ${notes}\n\n`;
+            }
+          }
+
           tgText += `👤 Клієнт: ${name}\n`;
           if (phone) tgText += `📱 Телефон: ${phone}\n`;
           if (instagram) tgText += `📸 Instagram: @${instagram}\n`;
