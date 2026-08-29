@@ -333,81 +333,9 @@ app.post("/message", async (req, res) => {
   await transport.handlePostMessage(req, res);
 });
 
-// ─── Debug: find info_source IDs ──────────────────────────
-app.get("/debug/info-sources", async (_req, res) => {
-  const headers = { "Api-Key": LUCKYFIT_API_KEY, "Content-Type": "application/json" };
-  const results = [];
+// /debug/info-sources endpoint removed — not needed in production
 
-  // Try common API endpoints for info sources
-  for (const path of ["/api/info_sources", "/api/settings/info_sources", "/api/fitness_info_sources", "/api/lead_sources"]) {
-    try {
-      const r = await fetch(`https://my.lucky.fitness${path}`, { headers });
-      const d = await r.json();
-      results.push({ path, status: r.status, data: d });
-    } catch (e) {
-      results.push({ path, error: e.message });
-    }
-  }
-
-  // Also probe which info_source_ids are valid by checking foreign key
-  const validIds = [];
-  for (let id = 1; id <= 30; id++) {
-    try {
-      // Use a dry-run approach: send minimal data that will fail on OTHER validation (no phone)
-      // but won't fail on info_source if ID is valid
-      const r = await fetch("https://my.lucky.fitness/api/leads", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ name: `_probe_${id}`, info_source_id: id }),
-      });
-      const d = await r.json();
-      const err = d.error || "";
-      if (err.includes("foreign key") || err.includes("Info source")) {
-        // ID doesn't exist
-      } else {
-        validIds.push({ id, error: err || "VALID (other validation)" });
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  res.json({ endpoints: results, validInfoSourceIds: validIds });
-});
-
-// ─── Telegram notification endpoint (for SendPulse webhook) ───
-app.post("/notify", async (req, res) => {
-  try {
-    const data = req.body || {};
-    const name = data.name || data.contact_name || data.first_name || "Невідомий";
-    const username = data.username || data.instagram_username || "";
-
-    let text = `🎾 <b>Новий запит з Instagram!</b>\n\n`;
-    text += `👤 Клієнт: ${name}\n`;
-    if (username) text += `📱 Instagram: @${username}\n`;
-    text += `\n⚡ Клієнт потребує уваги — перевірте чат у SendPulse та надішліть актуальні реквізити.`;
-
-    const tgRes = await fetch(
-      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: TELEGRAM_CHAT_ID,
-          text,
-          parse_mode: "HTML",
-        }),
-      }
-    );
-
-    const tgData = await tgRes.json();
-    console.log("[Telegram] Notification sent:", tgData.ok);
-    res.json({ ok: true, telegram: tgData.ok });
-  } catch (err) {
-    console.error("[Telegram] Error:", err.message);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
+// /notify endpoint removed — notifications now go through create_lead tool
 
 // Also support /mcp endpoint (alternative path)
 app.post("/mcp", async (req, res) => {
