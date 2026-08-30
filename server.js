@@ -41,8 +41,8 @@ const RAILWAY_URL = process.env.RAILWAY_PUBLIC_DOMAIN
   ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
   : "https://lev-padel-mcp-server-production.up.railway.app";
 
-// ─── Bot's own Instagram ID (fetched at startup, used to ignore echo) ──
-let BOT_INSTAGRAM_ID = null;
+// ─── Bot's own Instagram IDs (used to ignore echo) ──
+const BOT_IDS = new Set(); // may have multiple ID formats (Graph API vs webhook IGSID)
 
 async function fetchBotId() {
   if (!INSTAGRAM_ACCESS_TOKEN) return;
@@ -50,7 +50,7 @@ async function fetchBotId() {
     const res = await fetch(`https://graph.instagram.com/v26.0/me?fields=id,username&access_token=${INSTAGRAM_ACCESS_TOKEN}`);
     const data = await res.json();
     if (data.id) {
-      BOT_INSTAGRAM_ID = data.id;
+      BOT_IDS.add(data.id);
       console.log(`[Bot] My Instagram ID: ${data.id} (@${data.username || "?"})`);
     }
   } catch (e) {
@@ -459,7 +459,7 @@ async function callOpenAI(messages, senderId, depth = 0) {
       },
       body: JSON.stringify({
         model: "gpt-4o",
-        messages: [{ role: "system", content: BOT_SYSTEM_PROMPT }, ...messages],
+        messages: [{ role: "system", content: `Сьогодні: ${new Date().toLocaleDateString("uk-UA", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "Europe/Kyiv" })}. Поточний час: ${new Date().toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Kyiv" })}.\n\n${BOT_SYSTEM_PROMPT}` }, ...messages],
         tools: OPENAI_TOOLS,
         tool_choice: "auto",
         temperature: 0.7,
@@ -479,7 +479,8 @@ async function callOpenAI(messages, senderId, depth = 0) {
 
     // Handle tool calls
     if (msg.tool_calls && msg.tool_calls.length > 0) {
-      messages.push(msg);
+      // Ensure content is never null (OpenAI requirement for some models)
+      messages.push({ ...msg, content: msg.content || "" });
 
       for (const toolCall of msg.tool_calls) {
         let args;
@@ -501,7 +502,7 @@ async function callOpenAI(messages, senderId, depth = 0) {
           const avail = await checkCourtAvailability(args.date);
           result = avail.error
             ? avail.text
-            : JSON.stringify(avail.data, null, 2);
+            : JSON.stringify({ date: avail.date, courts: avail.courts }, null, 2);
         } else if (toolCall.function.name === "create_lead") {
           // Enforce once-only rule
           if (leadCreated.get(senderId)) {
@@ -765,8 +766,11 @@ app.post("/webhook", async (req, res) => {
       const senderId = event.sender?.id;
       if (!senderId) continue;
 
-      // Skip messages from the bot itself
-      if (BOT_INSTAGRAM_ID && senderId === BOT_INSTAGRAM_ID) continue;
+      // Learn the bot's webhook IGSID from recipient field of incoming messages
+      if (event.recipient?.id) BOT_IDS.add(event.recipient.id);
+
+      // Skip messages from the bot itself (multiple ID formats possible)
+      if (BOT_IDS.has(senderId)) continue;
 
       let messageText;
 
