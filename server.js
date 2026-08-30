@@ -550,11 +550,11 @@ async function sendInstagramMessage(recipientId, text) {
 
   for (let i = 0; i < chunks.length; i++) {
     try {
-      const res = await fetch("https://graph.instagram.com/v21.0/me/messages", {
+      // Use Facebook Graph API (works for both Messenger and Instagram DMs)
+      const res = await fetch(`https://graph.facebook.com/v26.0/me/messages?access_token=${INSTAGRAM_ACCESS_TOKEN}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${INSTAGRAM_ACCESS_TOKEN}`,
         },
         body: JSON.stringify({
           recipient: { id: recipientId },
