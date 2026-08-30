@@ -635,57 +635,40 @@ app.get("/auth/callback", async (req, res) => {
     const pagesData = await pagesRes.json();
     console.log("[Auth] Pages found:", pagesData.data?.length || 0);
 
-    // For each page, check if it has an Instagram business account
-    let results = [];
-    for (const page of (pagesData.data || [])) {
-      const igRes = await fetch(
-        `https://graph.facebook.com/v26.0/${page.id}?fields=instagram_business_account,name&access_token=${page.access_token}`
+    // Find LEV Padel Club page (ID 846483408547279) and subscribe it
+    const levPadelPage = (pagesData.data || []).find(p => p.id === "846483408547279");
+
+    if (levPadelPage) {
+      // Subscribe this page to the app webhooks for messaging
+      const subRes = await fetch(
+        `https://graph.facebook.com/v26.0/${levPadelPage.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks&access_token=${levPadelPage.access_token}`,
+        { method: "POST" }
       );
-      const igData = await igRes.json();
+      const subData = await subRes.json();
 
-      if (igData.instagram_business_account) {
-        // Subscribe this page to the app webhooks
-        const subRes = await fetch(
-          `https://graph.facebook.com/v26.0/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks&access_token=${page.access_token}`,
-          { method: "POST" }
-        );
-        const subData = await subRes.json();
+      console.log(`[Auth] ✅ LEV Padel Club page found!`);
+      console.log(`[Auth] Page token: ${levPadelPage.access_token}`);
+      console.log(`[Auth] Webhook subscribed: ${JSON.stringify(subData)}`);
 
-        results.push({
-          page_name: page.name,
-          page_id: page.id,
-          page_token: page.access_token,
-          ig_account_id: igData.instagram_business_account.id,
-          webhook_subscribed: subData.success || false,
-        });
-
-        console.log(`[Auth] ✅ Page "${page.name}" (${page.id}) → IG account ${igData.instagram_business_account.id}`);
-        console.log(`[Auth] Page token: ${page.access_token}`);
-        console.log(`[Auth] Webhook subscribed: ${subData.success}`);
-      }
-    }
-
-    if (results.length > 0) {
-      const r = results[0];
       res.send(`
-        <h1>✅ Instagram підключено!</h1>
-        <h2>Сторінка: ${r.page_name}</h2>
-        <p><b>Page ID:</b> ${r.page_id}</p>
-        <p><b>Instagram Account ID:</b> ${r.ig_account_id}</p>
-        <p><b>Webhook підписка:</b> ${r.webhook_subscribed ? "✅ Активна" : "❌ Помилка"}</p>
+        <h1>✅ LEV Padel Club підключено!</h1>
+        <p><b>Page ID:</b> ${levPadelPage.id}</p>
+        <p><b>Instagram:</b> @padel.lviv (ID: 17841477102687440)</p>
+        <p><b>Webhook підписка:</b> ${subData.success ? "✅ Активна" : "❌ " + JSON.stringify(subData)}</p>
         <p><b>Page Access Token (для бота):</b></p>
-        <textarea style="width:100%;height:120px;font-size:12px">${r.page_token}</textarea>
+        <textarea style="width:100%;height:120px;font-size:12px">${levPadelPage.access_token}</textarea>
         <br><br>
         <p>⬆️ Скопіюйте цей токен і скиньте мені в чат — я оновлю налаштування бота.</p>
-        <p><small>Також виведено в логах Railway.</small></p>
       `);
     } else {
+      // Show all pages so user can identify
+      const pagesList = (pagesData.data || []).map(p => {
+        return `<li><b>${p.name}</b> (ID: ${p.id})<br><textarea style="width:100%;height:60px;font-size:11px">${p.access_token}</textarea></li>`;
+      }).join("");
       res.send(`
-        <h1>⚠️ Instagram акаунт не знайдено</h1>
-        <p>Знайдено сторінок: ${pagesData.data?.length || 0}, але жодна не має підключеного Instagram бізнес-акаунту.</p>
-        <p>Переконайтесь, що @padel.lviv підключений до Facebook-сторінки LEV Padel Club.</p>
-        <h3>Знайдені сторінки:</h3>
-        <ul>${(pagesData.data || []).map(p => `<li>${p.name} (ID: ${p.id})</li>`).join("")}</ul>
+        <h1>⚠️ LEV Padel Club не знайдено</h1>
+        <p>Знайдено ${pagesData.data?.length || 0} сторінок. Скопіюйте токен потрібної:</p>
+        <ul>${pagesList}</ul>
       `);
     }
   } catch (err) {
