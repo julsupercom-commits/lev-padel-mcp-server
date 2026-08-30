@@ -592,7 +592,7 @@ async function sendInstagramMessage(recipientId, text) {
 app.get("/auth/instagram", (_req, res) => {
   const redirectUri = `${RAILWAY_URL}/auth/callback`;
   const scope = "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments";
-  const url = `https://www.instagram.com/oauth/authorize?enable_fb_login=0&force_authentication=1&client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}`;
+  const url = `https://www.instagram.com/oauth/authorize?enable_fb_login=1&force_authentication=1&client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}`;
   console.log("[Auth] Redirecting to Instagram Login...");
   res.redirect(url);
 });
