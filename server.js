@@ -591,7 +591,7 @@ async function sendInstagramMessage(recipientId, text) {
 // Step 1: Redirect user to Facebook Login (works for Instagram business accounts)
 app.get("/auth/instagram", (_req, res) => {
   const redirectUri = `${RAILWAY_URL}/auth/callback`;
-  const scope = "instagram_basic,instagram_manage_messages,pages_show_list,pages_manage_metadata,business_management";
+  const scope = "pages_show_list,pages_manage_metadata,pages_messaging,business_management";
   const url = `https://www.facebook.com/v26.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}`;
   console.log("[Auth] Redirecting to Facebook Login for Instagram permissions...");
   res.redirect(url);
