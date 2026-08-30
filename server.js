@@ -35,6 +35,11 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "-5388739834";
 const INSTAGRAM_ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN || "";
 const INSTAGRAM_VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN || "levpadel2026";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const META_APP_ID = process.env.META_APP_ID || "2169480773970275";
+const META_APP_SECRET = process.env.META_APP_SECRET || "";
+const RAILWAY_URL = process.env.RAILWAY_PUBLIC_DOMAIN
+  ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+  : "https://lev-padel-mcp-server-production.up.railway.app";
 
 // ─── Conversation Memory ─────────────────────────────────
 const conversations = new Map(); // senderId -> { messages: [], lastActivity }
@@ -578,6 +583,81 @@ async function sendInstagramMessage(recipientId, text) {
     }
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+//  INSTAGRAM LOGIN FOR BUSINESS (OAuth flow)
+// ═══════════════════════════════════════════════════════════
+
+// Step 1: Redirect user to Instagram authorization
+app.get("/auth/instagram", (_req, res) => {
+  const redirectUri = `${RAILWAY_URL}/auth/callback`;
+  const scope = "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments";
+  const url = `https://www.instagram.com/oauth/authorize?enable_fb_login=0&force_authentication=1&client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}`;
+  console.log("[Auth] Redirecting to Instagram Login...");
+  res.redirect(url);
+});
+
+// Step 2: Handle callback — exchange code for token
+app.get("/auth/callback", async (req, res) => {
+  const { code, error } = req.query;
+
+  if (error || !code) {
+    console.error("[Auth] Authorization denied or failed:", error);
+    return res.status(400).send("Авторизація скасована. Спробуйте ще раз.");
+  }
+
+  try {
+    // Exchange code for short-lived token
+    const redirectUri = `${RAILWAY_URL}/auth/callback`;
+    const tokenRes = await fetch("https://api.instagram.com/oauth/access_token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: META_APP_ID,
+        client_secret: META_APP_SECRET,
+        grant_type: "authorization_code",
+        redirect_uri: redirectUri,
+        code,
+      }),
+    });
+
+    const tokenData = await tokenRes.json();
+    console.log("[Auth] Short-lived token received for user:", tokenData.user_id);
+
+    if (tokenData.error_message) {
+      console.error("[Auth] Token exchange error:", tokenData.error_message);
+      return res.status(400).send(`Помилка: ${tokenData.error_message}`);
+    }
+
+    // Exchange for long-lived token (60 days)
+    const longRes = await fetch(
+      `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${META_APP_SECRET}&access_token=${tokenData.access_token}`
+    );
+    const longData = await longRes.json();
+
+    if (longData.access_token) {
+      console.log("[Auth] ✅ Long-lived token obtained! Expires in:", longData.expires_in, "seconds");
+      console.log("[Auth] IG User ID:", tokenData.user_id);
+      console.log("[Auth] TOKEN:", longData.access_token);
+
+      // Show success page with the token
+      res.send(`
+        <h1>✅ Instagram авторизовано!</h1>
+        <p><b>Account ID:</b> ${tokenData.user_id}</p>
+        <p><b>Token (long-lived, 60 днів):</b></p>
+        <textarea style="width:100%;height:100px;font-size:12px">${longData.access_token}</textarea>
+        <p>Скопіюйте цей токен — він потрібен для налаштування бота.</p>
+        <p>Або перевірте логи Railway — токен там теж виведений.</p>
+      `);
+    } else {
+      console.error("[Auth] Long-lived token exchange failed:", longData);
+      res.status(400).send(`Помилка обміну токена: ${JSON.stringify(longData)}`);
+    }
+  } catch (err) {
+    console.error("[Auth] Fatal error:", err.message);
+    res.status(500).send(`Серверна помилка: ${err.message}`);
+  }
+});
 
 // ─── Webhook Verification (Meta challenge) ────────────────
 
