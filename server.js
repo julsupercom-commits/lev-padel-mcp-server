@@ -588,16 +588,16 @@ async function sendInstagramMessage(recipientId, text) {
 //  INSTAGRAM LOGIN FOR BUSINESS (OAuth flow)
 // ═══════════════════════════════════════════════════════════
 
-// Step 1: Redirect user to Instagram authorization
+// Step 1: Redirect user to Facebook Login (works for Instagram business accounts)
 app.get("/auth/instagram", (_req, res) => {
   const redirectUri = `${RAILWAY_URL}/auth/callback`;
-  const scope = "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments";
-  const url = `https://www.instagram.com/oauth/authorize?enable_fb_login=1&force_authentication=1&client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}`;
-  console.log("[Auth] Redirecting to Instagram Login...");
+  const scope = "instagram_basic,instagram_manage_messages,pages_show_list,pages_manage_metadata,business_management";
+  const url = `https://www.facebook.com/v26.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}`;
+  console.log("[Auth] Redirecting to Facebook Login for Instagram permissions...");
   res.redirect(url);
 });
 
-// Step 2: Handle callback — exchange code for token
+// Step 2: Handle callback — exchange code for tokens
 app.get("/auth/callback", async (req, res) => {
   const { code, error } = req.query;
 
@@ -607,51 +607,86 @@ app.get("/auth/callback", async (req, res) => {
   }
 
   try {
-    // Exchange code for short-lived token
     const redirectUri = `${RAILWAY_URL}/auth/callback`;
-    const tokenRes = await fetch("https://api.instagram.com/oauth/access_token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: META_APP_ID,
-        client_secret: META_APP_SECRET,
-        grant_type: "authorization_code",
-        redirect_uri: redirectUri,
-        code,
-      }),
-    });
 
+    // Exchange code for user access token via Facebook
+    const tokenRes = await fetch(
+      `https://graph.facebook.com/v26.0/oauth/access_token?client_id=${META_APP_ID}&client_secret=${META_APP_SECRET}&redirect_uri=${encodeURIComponent(redirectUri)}&code=${code}`
+    );
     const tokenData = await tokenRes.json();
-    console.log("[Auth] Short-lived token received for user:", tokenData.user_id);
 
-    if (tokenData.error_message) {
-      console.error("[Auth] Token exchange error:", tokenData.error_message);
-      return res.status(400).send(`Помилка: ${tokenData.error_message}`);
+    if (tokenData.error) {
+      console.error("[Auth] Token exchange error:", tokenData.error);
+      return res.status(400).send(`Помилка: ${tokenData.error.message}`);
     }
 
-    // Exchange for long-lived token (60 days)
+    console.log("[Auth] User access token received");
+    const userToken = tokenData.access_token;
+
+    // Get long-lived user token (60 days)
     const longRes = await fetch(
-      `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${META_APP_SECRET}&access_token=${tokenData.access_token}`
+      `https://graph.facebook.com/v26.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${META_APP_ID}&client_secret=${META_APP_SECRET}&fb_exchange_token=${userToken}`
     );
     const longData = await longRes.json();
+    const longUserToken = longData.access_token || userToken;
 
-    if (longData.access_token) {
-      console.log("[Auth] ✅ Long-lived token obtained! Expires in:", longData.expires_in, "seconds");
-      console.log("[Auth] IG User ID:", tokenData.user_id);
-      console.log("[Auth] TOKEN:", longData.access_token);
+    // Get user's Pages
+    const pagesRes = await fetch(`https://graph.facebook.com/v26.0/me/accounts?access_token=${longUserToken}`);
+    const pagesData = await pagesRes.json();
+    console.log("[Auth] Pages found:", pagesData.data?.length || 0);
 
-      // Show success page with the token
+    // For each page, check if it has an Instagram business account
+    let results = [];
+    for (const page of (pagesData.data || [])) {
+      const igRes = await fetch(
+        `https://graph.facebook.com/v26.0/${page.id}?fields=instagram_business_account,name&access_token=${page.access_token}`
+      );
+      const igData = await igRes.json();
+
+      if (igData.instagram_business_account) {
+        // Subscribe this page to the app webhooks
+        const subRes = await fetch(
+          `https://graph.facebook.com/v26.0/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks&access_token=${page.access_token}`,
+          { method: "POST" }
+        );
+        const subData = await subRes.json();
+
+        results.push({
+          page_name: page.name,
+          page_id: page.id,
+          page_token: page.access_token,
+          ig_account_id: igData.instagram_business_account.id,
+          webhook_subscribed: subData.success || false,
+        });
+
+        console.log(`[Auth] ✅ Page "${page.name}" (${page.id}) → IG account ${igData.instagram_business_account.id}`);
+        console.log(`[Auth] Page token: ${page.access_token}`);
+        console.log(`[Auth] Webhook subscribed: ${subData.success}`);
+      }
+    }
+
+    if (results.length > 0) {
+      const r = results[0];
       res.send(`
-        <h1>✅ Instagram авторизовано!</h1>
-        <p><b>Account ID:</b> ${tokenData.user_id}</p>
-        <p><b>Token (long-lived, 60 днів):</b></p>
-        <textarea style="width:100%;height:100px;font-size:12px">${longData.access_token}</textarea>
-        <p>Скопіюйте цей токен — він потрібен для налаштування бота.</p>
-        <p>Або перевірте логи Railway — токен там теж виведений.</p>
+        <h1>✅ Instagram підключено!</h1>
+        <h2>Сторінка: ${r.page_name}</h2>
+        <p><b>Page ID:</b> ${r.page_id}</p>
+        <p><b>Instagram Account ID:</b> ${r.ig_account_id}</p>
+        <p><b>Webhook підписка:</b> ${r.webhook_subscribed ? "✅ Активна" : "❌ Помилка"}</p>
+        <p><b>Page Access Token (для бота):</b></p>
+        <textarea style="width:100%;height:120px;font-size:12px">${r.page_token}</textarea>
+        <br><br>
+        <p>⬆️ Скопіюйте цей токен і скиньте мені в чат — я оновлю налаштування бота.</p>
+        <p><small>Також виведено в логах Railway.</small></p>
       `);
     } else {
-      console.error("[Auth] Long-lived token exchange failed:", longData);
-      res.status(400).send(`Помилка обміну токена: ${JSON.stringify(longData)}`);
+      res.send(`
+        <h1>⚠️ Instagram акаунт не знайдено</h1>
+        <p>Знайдено сторінок: ${pagesData.data?.length || 0}, але жодна не має підключеного Instagram бізнес-акаунту.</p>
+        <p>Переконайтесь, що @padel.lviv підключений до Facebook-сторінки LEV Padel Club.</p>
+        <h3>Знайдені сторінки:</h3>
+        <ul>${(pagesData.data || []).map(p => `<li>${p.name} (ID: ${p.id})</li>`).join("")}</ul>
+      `);
     }
   } catch (err) {
     console.error("[Auth] Fatal error:", err.message);
