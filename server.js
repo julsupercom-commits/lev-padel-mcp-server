@@ -86,7 +86,38 @@ async function checkCourtAvailability(date) {
       return { error: true, text: `Помилка API (${res.status}): не вдалося отримати дані. Спробуйте іншу дату.` };
     }
     const data = await res.json();
-    return { error: false, data };
+
+    // Summarize: for each court, merge consecutive available slots into blocks
+    const summary = (data.courts || []).map(court => {
+      const blocks = [];
+      let blockStart = null;
+      let blockPrice = null;
+
+      for (const slot of court.slots) {
+        if (slot.available) {
+          if (!blockStart) {
+            blockStart = slot.start;
+            blockPrice = slot.price;
+          }
+        } else {
+          if (blockStart) {
+            blocks.push({ from: blockStart, to: slot.start, price: blockPrice });
+            blockStart = null;
+          }
+        }
+      }
+      // Close last open block
+      if (blockStart && court.slots.length > 0) {
+        blocks.push({ from: blockStart, to: court.operatingHours.end, price: blockPrice });
+      }
+
+      return {
+        court: court.courtName,
+        availableBlocks: blocks.length > 0 ? blocks : "Немає вільних слотів",
+      };
+    });
+
+    return { error: false, date: data.date, courts: summary };
   } catch (err) {
     return { error: true, text: `Помилка з'єднання з сервером доступності: ${err.message}` };
   }
