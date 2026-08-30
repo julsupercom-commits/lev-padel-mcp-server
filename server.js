@@ -41,6 +41,23 @@ const RAILWAY_URL = process.env.RAILWAY_PUBLIC_DOMAIN
   ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
   : "https://lev-padel-mcp-server-production.up.railway.app";
 
+// ─── Bot's own Instagram ID (fetched at startup, used to ignore echo) ──
+let BOT_INSTAGRAM_ID = null;
+
+async function fetchBotId() {
+  if (!INSTAGRAM_ACCESS_TOKEN) return;
+  try {
+    const res = await fetch(`https://graph.instagram.com/v26.0/me?fields=id,username&access_token=${INSTAGRAM_ACCESS_TOKEN}`);
+    const data = await res.json();
+    if (data.id) {
+      BOT_INSTAGRAM_ID = data.id;
+      console.log(`[Bot] My Instagram ID: ${data.id} (@${data.username || "?"})`);
+    }
+  } catch (e) {
+    console.warn("[Bot] Could not fetch own ID:", e.message);
+  }
+}
+
 // ─── Conversation Memory ─────────────────────────────────
 const conversations = new Map(); // senderId -> { messages: [], lastActivity }
 const CONVERSATION_TTL = 30 * 60 * 1000; // 30 min
@@ -717,6 +734,9 @@ app.post("/webhook", async (req, res) => {
       const senderId = event.sender?.id;
       if (!senderId) continue;
 
+      // Skip messages from the bot itself
+      if (BOT_INSTAGRAM_ID && senderId === BOT_INSTAGRAM_ID) continue;
+
       let messageText;
 
       if (event.message?.text) {
@@ -965,11 +985,12 @@ app.delete("/mcp", async (req, res) => {
 });
 
 // ─── Start ────────────────────────────────────────────────
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`✅ Lev Padel server v2.0 running on port ${PORT}`);
   console.log(`   MCP:        /sse, /mcp (POST/GET/DELETE)`);
   console.log(`   Webhook:    /webhook (GET verify, POST messages)`);
   console.log(`   LuckyFit:   ${LUCKYFIT_API_KEY ? "✅ configured" : "⚠️ NOT SET"}`);
   console.log(`   Instagram:  ${INSTAGRAM_ACCESS_TOKEN ? "✅ configured" : "⚠️ NOT SET"}`);
   console.log(`   OpenAI:     ${OPENAI_API_KEY ? "✅ configured" : "⚠️ NOT SET"}`);
+  await fetchBotId();
 });
