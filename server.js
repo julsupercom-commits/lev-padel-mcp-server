@@ -68,6 +68,10 @@ const leadCreated = new Map(); // senderId -> true (enforce once-only rule)
 const humanTakeover = new Map(); // userId -> timestamp
 const HUMAN_TAKEOVER_TTL = 2 * 60 * 60 * 1000; // 2 hours
 
+// Track bot's own sends to distinguish our echo from admin echo
+const botSentTo = new Map(); // recipientId -> timestamp of last bot-sent message
+const BOT_ECHO_WINDOW = 60000; // 60 sec — our echo arrives within this
+
 // Message batching: wait for rapid sequential messages
 const messageQueues = new Map(); // senderId -> { messages: [], timer }
 const MESSAGE_BATCH_DELAY = 5000; // 5 sec (people send 2-3 messages in a row)
@@ -675,6 +679,8 @@ async function sendInstagramMessage(recipientId, text) {
         console.error(`[Instagram] Send error (chunk ${i + 1}/${chunks.length}):`, data.error);
       } else {
         console.log(`[Instagram] Message sent (chunk ${i + 1}/${chunks.length}) to ${recipientId}`);
+        // Track for echo detection (distinguish bot echo from admin echo)
+        botSentTo.set(recipientId, Date.now());
       }
 
       // Small delay between chunks to maintain order
@@ -817,11 +823,13 @@ app.post("/webhook", async (req, res) => {
 
       // Detect echo messages — check if human admin replied
       if (event.message?.is_echo) {
-        // If echo has ANY app_id → sent by an app (our bot or another), not a human
-        // Human admin typing from Instagram inbox has NO app_id
-        if (!event.message.app_id) {
-          const userId = event.recipient?.id;
-          if (userId) {
+        const userId = event.recipient?.id;
+        if (userId && !BOT_IDS.has(userId)) {
+          const lastBotSend = botSentTo.get(userId);
+          if (lastBotSend && (Date.now() - lastBotSend) < BOT_ECHO_WINDOW) {
+            // We sent to this user recently — this is our own echo, ignore
+          } else {
+            // We did NOT send to this user recently — human admin replied
             humanTakeover.set(userId, Date.now());
             console.log(`[Bot] 🛑 Human takeover for ${userId} — admin replied, bot paused for 2h`);
           }
