@@ -821,21 +821,8 @@ app.post("/webhook", async (req, res) => {
       // Skip read receipts and delivery confirmations
       if (event.read || event.delivery) continue;
 
-      // Detect echo messages — check if human admin replied
-      if (event.message?.is_echo) {
-        const userId = event.recipient?.id;
-        if (userId && !BOT_IDS.has(userId)) {
-          const lastBotSend = botSentTo.get(userId);
-          if (lastBotSend && (Date.now() - lastBotSend) < BOT_ECHO_WINDOW) {
-            // We sent to this user recently — this is our own echo, ignore
-          } else {
-            // We did NOT send to this user recently — human admin replied
-            humanTakeover.set(userId, Date.now());
-            console.log(`[Bot] 🛑 Human takeover for ${userId} — admin replied, bot paused for 2h`);
-          }
-        }
-        continue;
-      }
+      // Skip echo (our own outgoing messages + admin replies)
+      if (event.message?.is_echo) continue;
 
       const senderId = event.sender?.id;
       if (!senderId) continue;
@@ -846,13 +833,8 @@ app.post("/webhook", async (req, res) => {
       // Skip messages from the bot itself (multiple ID formats possible)
       if (BOT_IDS.has(senderId)) continue;
 
-      // Human takeover: if admin replied recently, bot stays silent
-      const takeoverTime = humanTakeover.get(senderId);
-      if (takeoverTime && (Date.now() - takeoverTime) < HUMAN_TAKEOVER_TTL) {
-        const minsLeft = Math.round((HUMAN_TAKEOVER_TTL - (Date.now() - takeoverTime)) / 60000);
-        console.log(`[Bot] ⏸ Skipping — human takeover active for ${senderId} (${minsLeft} min left)`);
-        continue;
-      }
+      // TODO: human takeover detection (pausing bot when admin replies)
+      // Disabled — Instagram echo messages don't reliably indicate admin vs bot
 
       let messageText;
 
