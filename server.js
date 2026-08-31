@@ -817,13 +817,13 @@ app.post("/webhook", async (req, res) => {
 
       // Detect echo messages — check if human admin replied
       if (event.message?.is_echo) {
-        const echoAppId = String(event.message.app_id || "");
-        if (echoAppId !== META_APP_ID) {
-          // NOT our bot — a human admin replied via Instagram inbox
+        // If echo has ANY app_id → sent by an app (our bot or another), not a human
+        // Human admin typing from Instagram inbox has NO app_id
+        if (!event.message.app_id) {
           const userId = event.recipient?.id;
           if (userId) {
             humanTakeover.set(userId, Date.now());
-            console.log(`[Bot] 🛑 Human takeover for ${userId} — bot paused for 2h`);
+            console.log(`[Bot] 🛑 Human takeover for ${userId} — admin replied, bot paused for 2h`);
           }
         }
         continue;
