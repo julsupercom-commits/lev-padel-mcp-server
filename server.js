@@ -555,13 +555,21 @@ async function callOpenAI(messages, senderId, depth = 0) {
             console.log(`[Bot] Lead already created for ${senderId}, skipping`);
             result = "Лід вже створений раніше в цьому діалозі. Не створюй повторно.";
           } else {
-            console.log(`[Bot] Creating lead: ${args.name}, ${args.phone}`);
-            const leadResult = await createLeadInCRM(args);
-            if (leadResult.success) {
-              leadCreated.set(senderId, true);
-              result = "Лід успішно створено в CRM! Адміністратор отримав сповіщення в Telegram.";
+            // Validate: reject placeholder/fake data
+            const fakePat = /XXXX|user_instagram|example|test_user|приклад/i;
+            if (fakePat.test(args.phone) || fakePat.test(args.instagram || "") || fakePat.test(args.name)) {
+              console.warn(`[Bot] Rejected fake lead data: ${args.name}, ${args.phone}`);
+              result = "ПОМИЛКА: Ти передав тестові/вигадані дані. Використовуй ТІЛЬКИ реальні дані від клієнта!";
             } else {
-              result = `Помилка CRM: ${leadResult.error}. Адміністратор все одно отримав сповіщення — заявку обробить.`;
+              console.log(`[Bot] Creating lead: ${args.name}, ${args.phone}`);
+              // Mark as created BEFORE the call to prevent double-send
+              leadCreated.set(senderId, true);
+              const leadResult = await createLeadInCRM(args);
+              if (leadResult.success) {
+                result = "Лід успішно створено в CRM! Адміністратор отримав сповіщення в Telegram.";
+              } else {
+                result = `Помилка CRM: ${leadResult.error}. Адміністратор все одно отримав сповіщення — заявку обробить.`;
+              }
             }
           }
         } else {
