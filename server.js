@@ -166,7 +166,6 @@ async function createLeadInCRM({ name, phone, instagram, notes }) {
         if (notes) tgText += `📝 ${notes}\n\n`;
         tgText += `👤 Клієнт: ${name}\n`;
         if (phone) tgText += `📱 Телефон: ${phone}\n`;
-        if (instagram) tgText += `📸 Instagram: @${instagram}\n`;
         tgText += `\n⚠️ CRM помилка\n⚡️ Потребує уваги адміністратора — створіть лід вручну!`;
 
         await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -197,7 +196,6 @@ async function createLeadInCRM({ name, phone, instagram, notes }) {
         }
         tgText += `👤 Клієнт: ${name}\n`;
         if (phone) tgText += `📱 Телефон: ${phone}\n`;
-        if (instagram) tgText += `📸 Instagram: @${instagram}\n`;
         tgText += `\n⚡️ Потребує уваги адміністратора.`;
 
         await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
