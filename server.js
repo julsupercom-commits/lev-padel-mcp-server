@@ -852,7 +852,9 @@ app.post("/webhook", async (req, res) => {
         messageText = event.message.text;
       } else if (event.message?.attachments) {
         const types = event.message.attachments.map((a) => a.type);
-        const hasShare = types.includes("share") || types.includes("story_mention") || types.includes("reel");
+        // Instagram sends shares/reels/stories as various types including "unsupported_type"
+        const shareTypes = ["share", "story_mention", "reel", "ig_reel", "media_share", "unsupported_type"];
+        const hasShare = types.some(t => shareTypes.includes(t));
         if (hasShare) {
           messageText = `[Клієнт поділився публікацією/reels або згадав нас]`;
         } else {
