@@ -64,6 +64,10 @@ const conversations = new Map(); // senderId -> { messages: [], lastActivity }
 const CONVERSATION_TTL = 30 * 60 * 1000; // 30 min
 const leadCreated = new Map(); // senderId -> true (enforce once-only rule)
 
+// Human takeover: when admin replies manually, bot pauses for 2 hours
+const humanTakeover = new Map(); // userId -> timestamp
+const HUMAN_TAKEOVER_TTL = 2 * 60 * 60 * 1000; // 2 hours
+
 // Message batching: wait for rapid sequential messages
 const messageQueues = new Map(); // senderId -> { messages: [], timer }
 const MESSAGE_BATCH_DELAY = 5000; // 5 sec (people send 2-3 messages in a row)
@@ -808,10 +812,22 @@ app.post("/webhook", async (req, res) => {
 
   for (const entry of body.entry || []) {
     for (const event of entry.messaging || []) {
-      // Skip echo (our own outgoing messages)
-      if (event.message?.is_echo) continue;
       // Skip read receipts and delivery confirmations
       if (event.read || event.delivery) continue;
+
+      // Detect echo messages — check if human admin replied
+      if (event.message?.is_echo) {
+        const echoAppId = String(event.message.app_id || "");
+        if (echoAppId !== META_APP_ID) {
+          // NOT our bot — a human admin replied via Instagram inbox
+          const userId = event.recipient?.id;
+          if (userId) {
+            humanTakeover.set(userId, Date.now());
+            console.log(`[Bot] 🛑 Human takeover for ${userId} — bot paused for 2h`);
+          }
+        }
+        continue;
+      }
 
       const senderId = event.sender?.id;
       if (!senderId) continue;
@@ -821,6 +837,14 @@ app.post("/webhook", async (req, res) => {
 
       // Skip messages from the bot itself (multiple ID formats possible)
       if (BOT_IDS.has(senderId)) continue;
+
+      // Human takeover: if admin replied recently, bot stays silent
+      const takeoverTime = humanTakeover.get(senderId);
+      if (takeoverTime && (Date.now() - takeoverTime) < HUMAN_TAKEOVER_TTL) {
+        const minsLeft = Math.round((HUMAN_TAKEOVER_TTL - (Date.now() - takeoverTime)) / 60000);
+        console.log(`[Bot] ⏸ Skipping — human takeover active for ${senderId} (${minsLeft} min left)`);
+        continue;
+      }
 
       let messageText;
 
