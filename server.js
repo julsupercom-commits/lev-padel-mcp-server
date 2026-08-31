@@ -66,7 +66,7 @@ const leadCreated = new Map(); // senderId -> true (enforce once-only rule)
 
 // Message batching: wait for rapid sequential messages
 const messageQueues = new Map(); // senderId -> { messages: [], timer }
-const MESSAGE_BATCH_DELAY = 3000; // 3 sec
+const MESSAGE_BATCH_DELAY = 5000; // 5 sec (people send 2-3 messages in a row)
 
 function cleanConversations() {
   const now = Date.now();
@@ -97,6 +97,11 @@ async function checkCourtAvailability(date) {
       for (const slot of court.slots) {
         if (slot.available) {
           if (!blockStart) {
+            blockStart = slot.start;
+            blockPrice = slot.price;
+          } else if (slot.price !== blockPrice) {
+            // Price changed (off-peak → peak) — close current block, start new one
+            blocks.push({ from: blockStart, to: slot.start, price: blockPrice });
             blockStart = slot.start;
             blockPrice = slot.price;
           }
