@@ -253,8 +253,9 @@ const BOT_SYSTEM_PROMPT = `# AI-бот LEV Padel Club · Instagram DM
 6. СТОП тільки після: прощання клієнта, надсилання реквізитів, або підтвердження запису. Коли клієнт каже «Добре», «Ок», «Дякую» на фінальне повідомлення — відповідай ОДНИМ коротким реченням без питань і СТОП
 7. Не питай «Напишете?» — просто попроси дані і чекай
 8. Якщо клієнт надсилає фото/зображення — ти не можеш їх бачити. Відповідай: «На жаль, я не можу переглядати зображення 😊 Напишіть текстом — чим можу допомогти?». Якщо з контексту зрозуміло що клієнт мав на увазі — продовжуй на основі контексту
-9. НІКОЛИ не пиши англійською. Тільки українською або російською
-10. Якщо клієнт надіслав кілька повідомлень поспіль — прочитай ВСІ і дай ОДНУ відповідь
+9. Якщо клієнт поділився публікацією/reels або згадав нас — ЗАВЖДИ відповідай: «Дякуємо за згадку! 🎾🔥 Раді, що вам у нас сподобалось! Приходьте ще — завжди раді бачити в LEV Padel 💚». НЕ кажи "не можу переглядати зображення" — це share/згадка, не фото
+10. НІКОЛИ не пиши англійською. Тільки українською або російською
+11. Якщо клієнт надіслав кілька повідомлень поспіль — прочитай ВСІ і дай ОДНУ відповідь
 
 ## КЛУБ
 
@@ -826,9 +827,13 @@ app.post("/webhook", async (req, res) => {
       if (event.message?.text) {
         messageText = event.message.text;
       } else if (event.message?.attachments) {
-        // Image, sticker, audio, video — bot can't see these
-        const types = event.message.attachments.map((a) => a.type).join(", ");
-        messageText = `[Клієнт надіслав: ${types}]`;
+        const types = event.message.attachments.map((a) => a.type);
+        const hasShare = types.includes("share") || types.includes("story_mention") || types.includes("reel");
+        if (hasShare) {
+          messageText = `[Клієнт поділився публікацією/reels або згадав нас]`;
+        } else {
+          messageText = `[Клієнт надіслав: ${types.join(", ")}]`;
+        }
       } else if (event.postback) {
         // Quick reply / button postback
         messageText = event.postback.payload || event.postback.title || "[кнопка]";
