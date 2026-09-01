@@ -260,7 +260,7 @@ const BOT_SYSTEM_PROMPT = `# AI-бот LEV Padel Club · Instagram DM
 5. Вітання — «Вітаю!» або «Привіт!» (не «Доброго дня» — клієнт може писати вночі)
 6. СТОП тільки після: прощання клієнта, надсилання реквізитів, або підтвердження запису. Коли клієнт каже «Добре», «Ок», «Дякую» на фінальне повідомлення — відповідай ОДНИМ коротким реченням без питань і СТОП
 7. Не питай «Напишете?» — просто попроси дані і чекай
-8. Якщо клієнт надсилає фото/зображення — ти не можеш їх бачити. Відповідай: «Я не можу переглядати зображення 😊 Напишіть текстом — чим можу допомогти?». Якщо з контексту зрозуміло що клієнт мав на увазі — продовжуй на основі контексту
+8. Ти МОЖЕШ бачити зображення, які надсилає клієнт. Якщо це скріншот оплати — підтверди бронювання. Якщо незрозуміле фото — запитай що клієнт мав на увазі
 9. Якщо клієнт поділився публікацією/reels або згадав нас — ЗАВЖДИ відповідай: «Дякуємо за згадку! 🎾🔥 Раді, що вам у нас сподобалось! Приходьте ще — завжди раді бачити в LEV Padel 💚». НЕ кажи "не можу переглядати зображення" — це share/згадка, не фото
 10. НІКОЛИ не пиши англійською. Тільки українською або російською
 11. Якщо клієнт надіслав кілька повідомлень поспіль — прочитай ВСІ і дай ОДНУ відповідь
@@ -625,7 +625,7 @@ async function callOpenAI(messages, senderId, depth = 0) {
   }
 }
 
-async function processMessage(senderId, userTexts) {
+async function processMessage(senderId, userTexts, imageDataUrls = []) {
   cleanConversations();
 
   let conv = conversations.get(senderId);
@@ -637,7 +637,24 @@ async function processMessage(senderId, userTexts) {
 
   // Combine multiple messages into one (handles rapid sequential messages)
   const combinedText = userTexts.join("\n");
-  conv.messages.push({ role: "user", content: combinedText });
+
+  // Build message content — text + optional images (GPT-4o vision)
+  if (imageDataUrls.length > 0) {
+    const content = [];
+    if (combinedText.trim()) {
+      content.push({ type: "text", text: combinedText });
+    }
+    for (const dataUrl of imageDataUrls) {
+      content.push({ type: "image_url", image_url: { url: dataUrl, detail: "low" } });
+    }
+    if (content.length === imageDataUrls.length) {
+      // No text — add context hint
+      content.unshift({ type: "text", text: "[Клієнт надіслав зображення]" });
+    }
+    conv.messages.push({ role: "user", content });
+  } else {
+    conv.messages.push({ role: "user", content: combinedText });
+  }
 
   // Keep last 20 messages for context window
   if (conv.messages.length > 20) {
@@ -653,6 +670,29 @@ async function processMessage(senderId, userTexts) {
   } catch (err) {
     console.error("[Bot] Processing error:", err);
     return "Вибачте, сталася тимчасова помилка. Спробуйте ще раз або зателефонуйте +380 (77) 732 00 00 😊";
+  }
+}
+
+// ─── Image Download (for GPT-4o Vision) ─────────────────
+
+async function downloadImageAsBase64(imageUrl) {
+  try {
+    console.log("[Vision] Downloading image from Instagram...");
+    const imgRes = await fetch(imageUrl, {
+      headers: { Authorization: `Bearer ${INSTAGRAM_ACCESS_TOKEN}` },
+    });
+    if (!imgRes.ok) {
+      console.error(`[Vision] Failed to download image: ${imgRes.status}`);
+      return null;
+    }
+    const buffer = await imgRes.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString("base64");
+    const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+    console.log(`[Vision] Image downloaded: ${buffer.byteLength} bytes, ${contentType}`);
+    return `data:${contentType};base64,${base64}`;
+  } catch (err) {
+    console.error("[Vision] Download failed:", err.message);
+    return null;
   }
 }
 
@@ -906,6 +946,7 @@ app.post("/webhook", async (req, res) => {
       // Disabled — Instagram echo messages don't reliably indicate admin vs bot
 
       let messageText;
+      let imageDataUrl = null; // For GPT-4o vision
 
       if (event.message?.text) {
         messageText = event.message.text;
@@ -924,6 +965,15 @@ app.post("/webhook", async (req, res) => {
             messageText = `[Клієнт надіслав голосове повідомлення, яке не вдалося розпізнати]`;
           }
         }
+        // Images — download for GPT-4o vision
+        else if (types.includes("image")) {
+          const imgAttachment = event.message.attachments.find(a => a.type === "image");
+          if (imgAttachment?.payload?.url) {
+            console.log(`[Webhook] Image from ${senderId}, downloading for vision...`);
+            imageDataUrl = await downloadImageAsBase64(imgAttachment.payload.url);
+          }
+          messageText = event.message.text || ""; // Image may have caption text
+        }
         // Instagram sends shares/reels/stories as various types including "unsupported_type"
         else {
           const shareTypes = ["share", "story_mention", "reel", "ig_reel", "media_share", "unsupported_type"];
@@ -941,34 +991,37 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      console.log(`[Webhook] Message from ${senderId}: ${messageText.substring(0, 80)}`);
+      console.log(`[Webhook] Message from ${senderId}: ${(messageText || "[image]").substring(0, 80)}`);
 
-      // ── Message batching: wait 3s for more messages ──
+      // ── Message batching: wait for more messages ──
       let queue = messageQueues.get(senderId);
       if (!queue) {
-        queue = { messages: [], timer: null };
+        queue = { messages: [], images: [], timer: null };
         messageQueues.set(senderId, queue);
       }
 
-      queue.messages.push(messageText);
+      if (messageText) queue.messages.push(messageText);
+      if (imageDataUrl) queue.images.push(imageDataUrl);
 
       if (queue.timer) clearTimeout(queue.timer);
       queue.timer = setTimeout(async () => {
         const texts = [...queue.messages];
+        const images = [...queue.images];
         queue.messages = [];
+        queue.images = [];
         messageQueues.delete(senderId);
 
-        console.log(`[Bot] Processing ${texts.length} message(s) from ${senderId}`);
+        console.log(`[Bot] Processing ${texts.length} text(s) + ${images.length} image(s) from ${senderId}`);
 
         try {
-          const response = await processMessage(senderId, texts);
+          const response = await processMessage(senderId, texts, images);
           await sendInstagramMessage(senderId, response);
         } catch (err) {
           console.error("[Bot] Fatal error:", err);
           try {
             await sendInstagramMessage(
               senderId,
-              "Вибачте, сталася помилка. Зателефонуйте +380 (77) 732 00 00 або напишіть пізніше 😊"
+              "Сталася помилка. Зателефонуйте +380 (77) 732 00 00 або напишіть пізніше 😊"
             );
           } catch {}
         }
