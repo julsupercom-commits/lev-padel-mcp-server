@@ -656,6 +656,48 @@ async function processMessage(senderId, userTexts) {
   }
 }
 
+// ─── Voice Message Transcription (OpenAI Whisper) ────────
+
+async function transcribeAudio(audioUrl) {
+  try {
+    console.log("[Whisper] Downloading audio from Instagram...");
+    // Download audio from Instagram (requires access token)
+    const audioRes = await fetch(audioUrl, {
+      headers: { Authorization: `Bearer ${INSTAGRAM_ACCESS_TOKEN}` },
+    });
+    if (!audioRes.ok) {
+      console.error(`[Whisper] Failed to download audio: ${audioRes.status}`);
+      return null;
+    }
+    const audioBuffer = await audioRes.arrayBuffer();
+    console.log(`[Whisper] Audio downloaded: ${audioBuffer.byteLength} bytes`);
+
+    // Send to OpenAI Whisper API
+    const formData = new FormData();
+    formData.append("file", new Blob([audioBuffer], { type: "audio/mp4" }), "voice.mp4");
+    formData.append("model", "whisper-1");
+    formData.append("language", "uk"); // Ukrainian
+
+    const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+      body: formData,
+    });
+
+    const whisperData = await whisperRes.json();
+    if (whisperData.text) {
+      console.log(`[Whisper] Transcribed: "${whisperData.text.substring(0, 80)}..."`);
+      return whisperData.text;
+    } else {
+      console.error("[Whisper] No text in response:", whisperData);
+      return null;
+    }
+  } catch (err) {
+    console.error("[Whisper] Transcription failed:", err.message);
+    return null;
+  }
+}
+
 // ─── Instagram Messaging API ─────────────────────────────
 
 async function sendInstagramMessage(recipientId, text) {
@@ -869,13 +911,28 @@ app.post("/webhook", async (req, res) => {
         messageText = event.message.text;
       } else if (event.message?.attachments) {
         const types = event.message.attachments.map((a) => a.type);
+
+        // Voice messages — transcribe with Whisper
+        const audioAttachment = event.message.attachments.find(a => a.type === "audio");
+        if (audioAttachment && audioAttachment.payload?.url) {
+          console.log(`[Webhook] Voice message from ${senderId}, transcribing...`);
+          const transcription = await transcribeAudio(audioAttachment.payload.url);
+          if (transcription) {
+            messageText = transcription;
+            console.log(`[Webhook] Voice transcribed: "${transcription.substring(0, 80)}"`);
+          } else {
+            messageText = `[Клієнт надіслав голосове повідомлення, яке не вдалося розпізнати]`;
+          }
+        }
         // Instagram sends shares/reels/stories as various types including "unsupported_type"
-        const shareTypes = ["share", "story_mention", "reel", "ig_reel", "media_share", "unsupported_type"];
-        const hasShare = types.some(t => shareTypes.includes(t));
-        if (hasShare) {
-          messageText = `[Клієнт поділився публікацією/reels або згадав нас]`;
-        } else {
-          messageText = `[Клієнт надіслав: ${types.join(", ")}]`;
+        else {
+          const shareTypes = ["share", "story_mention", "reel", "ig_reel", "media_share", "unsupported_type"];
+          const hasShare = types.some(t => shareTypes.includes(t));
+          if (hasShare) {
+            messageText = `[Клієнт поділився публікацією/reels або згадав нас]`;
+          } else {
+            messageText = `[Клієнт надіслав: ${types.join(", ")}]`;
+          }
         }
       } else if (event.postback) {
         // Quick reply / button postback
