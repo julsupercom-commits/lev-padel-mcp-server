@@ -65,12 +65,12 @@ const CONVERSATION_TTL = 30 * 60 * 1000; // 30 min
 const leadCreated = new Map(); // senderId -> true (enforce once-only rule)
 
 // Human takeover: when admin replies manually, bot pauses for 2 hours
-const humanTakeover = new Map(); // userId -> timestamp
+const humanTakeover = new Map(); // recipientId -> timestamp when admin replied
 const HUMAN_TAKEOVER_TTL = 2 * 60 * 60 * 1000; // 2 hours
 
-// Track bot's own sends to distinguish our echo from admin echo
-const botSentTo = new Map(); // recipientId -> timestamp of last bot-sent message
-const BOT_ECHO_WINDOW = 60000; // 60 sec — our echo arrives within this
+// Track bot's sent message texts to distinguish bot echo from admin echo
+// Key: recipientId, Value: array of { text: first 100 chars, time: timestamp }
+const botSentTexts = new Map();
 
 // Message batching: wait for rapid sequential messages
 const messageQueues = new Map(); // senderId -> { messages: [], timer }
@@ -793,8 +793,22 @@ async function sendInstagramMessage(recipientId, text) {
         console.error(`[Instagram] Send error (chunk ${i + 1}/${chunks.length}):`, data.error);
       } else {
         console.log(`[Instagram] Message sent (chunk ${i + 1}/${chunks.length}) to ${recipientId}`);
-        // Track for echo detection (distinguish bot echo from admin echo)
-        botSentTo.set(recipientId, Date.now());
+        // Track sent text for echo detection (distinguish bot echo from admin echo)
+        let sentList = botSentTexts.get(recipientId);
+        if (!sentList) {
+          sentList = [];
+          botSentTexts.set(recipientId, sentList);
+        }
+        sentList.push({ text: chunks[i].trim().substring(0, 100), time: Date.now() });
+        // Auto-clean old entries after 2 min
+        setTimeout(() => {
+          const list = botSentTexts.get(recipientId);
+          if (list) {
+            const idx = list.findIndex(e => e.text === chunks[i].trim().substring(0, 100));
+            if (idx !== -1) list.splice(idx, 1);
+            if (list.length === 0) botSentTexts.delete(recipientId);
+          }
+        }, 120000);
       }
 
       // Small delay between chunks to maintain order
@@ -935,8 +949,29 @@ app.post("/webhook", async (req, res) => {
       // Skip read receipts and delivery confirmations
       if (event.read || event.delivery) continue;
 
-      // Skip echo (our own outgoing messages + admin replies)
-      if (event.message?.is_echo) continue;
+      // ── Echo handling: distinguish bot echo from admin echo ──
+      if (event.message?.is_echo) {
+        const echoRecipient = event.recipient?.id;
+        const echoText = (event.message?.text || "").trim().substring(0, 100);
+
+        if (echoRecipient && echoText) {
+          const sentList = botSentTexts.get(echoRecipient);
+          const matchIdx = sentList
+            ? sentList.findIndex(e => echoText === e.text)
+            : -1;
+
+          if (matchIdx !== -1) {
+            // Bot echo — matches text we sent → remove from tracking, skip
+            sentList.splice(matchIdx, 1);
+            if (sentList.length === 0) botSentTexts.delete(echoRecipient);
+          } else {
+            // Admin echo — text we did NOT send → activate human takeover
+            humanTakeover.set(echoRecipient, Date.now());
+            console.log(`[Takeover] ✅ Admin replied to ${echoRecipient}, bot paused for 2 hours`);
+          }
+        }
+        continue; // Always skip echo messages (don't process as user input)
+      }
 
       const senderId = event.sender?.id;
       if (!senderId) continue;
@@ -947,8 +982,16 @@ app.post("/webhook", async (req, res) => {
       // Skip messages from the bot itself (multiple ID formats possible)
       if (BOT_IDS.has(senderId)) continue;
 
-      // TODO: human takeover detection (pausing bot when admin replies)
-      // Disabled — Instagram echo messages don't reliably indicate admin vs bot
+      // ── Human takeover check: if admin recently replied, bot stays silent ──
+      const takeoverTime = humanTakeover.get(senderId);
+      if (takeoverTime && (Date.now() - takeoverTime < HUMAN_TAKEOVER_TTL)) {
+        console.log(`[Takeover] Bot paused for ${senderId} — admin handling (${Math.round((Date.now() - takeoverTime) / 60000)} min ago)`);
+        continue;
+      } else if (takeoverTime) {
+        // Expired — clean up and let bot respond
+        humanTakeover.delete(senderId);
+        console.log(`[Takeover] Pause expired for ${senderId}, bot resuming`);
+      }
 
       let messageText;
       let imageDataUrl = null; // For GPT-4o vision
