@@ -72,8 +72,12 @@ const HUMAN_TAKEOVER_TTL = 2 * 60 * 60 * 1000; // 2 hours
 // Key: recipientId, Value: array of { text: first 100 chars, time: timestamp }
 const botSentTexts = new Map();
 
+// Anti-duplicate for share/mention responses
+const lastShareResponse = new Map(); // senderId -> timestamp
+const SHARE_RESPONSE_COOLDOWN = 60000; // 60 sec — ignore duplicate share events
+
 // Message batching: wait for rapid sequential messages
-const messageQueues = new Map(); // senderId -> { messages: [], timer }
+const messageQueues = new Map(); // senderId -> { messages: [], images: [], timer }
 const MESSAGE_BATCH_DELAY = 5000; // 5 sec (people send 2-3 messages in a row)
 
 function cleanConversations() {
@@ -1046,6 +1050,13 @@ app.post("/webhook", async (req, res) => {
           const shareTypes = ["share", "story_mention", "reel", "ig_reel", "media_share", "unsupported_type"];
           const hasShare = types.some(t => shareTypes.includes(t));
           if (hasShare) {
+            // Anti-duplicate: skip if we already responded to a share from this user recently
+            const lastShare = lastShareResponse.get(senderId);
+            if (lastShare && (Date.now() - lastShare < SHARE_RESPONSE_COOLDOWN)) {
+              console.log(`[Webhook] Duplicate share from ${senderId}, skipping (${Math.round((Date.now() - lastShare) / 1000)}s ago)`);
+              continue;
+            }
+            lastShareResponse.set(senderId, Date.now());
             messageText = `[Клієнт поділився публікацією/reels або згадав нас]`;
           } else {
             messageText = `[Клієнт надіслав: ${types.join(", ")}]`;
