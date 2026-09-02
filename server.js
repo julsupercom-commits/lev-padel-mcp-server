@@ -100,6 +100,22 @@ async function checkCourtAvailability(date) {
     }
     const data = await res.json();
 
+    // Check if the requested date is today — filter out past slots
+    const now = new Date();
+    const kyivNow = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+    const todayStr = kyivNow.toISOString().slice(0, 10); // YYYY-MM-DD
+    const isToday = data.date === todayStr;
+    // Round up to next full hour for minimum start time (17:34 → 18:00)
+    const currentHour = kyivNow.getHours();
+    const currentMin = kyivNow.getMinutes();
+    const minStartTime = currentMin > 0
+      ? `${String(currentHour + 1).padStart(2, "0")}:00`
+      : `${String(currentHour).padStart(2, "0")}:00`;
+
+    if (isToday) {
+      console.log(`[Availability] Today filter: slots starting before ${minStartTime} will be skipped`);
+    }
+
     // Summarize: for each court, merge consecutive available slots into blocks
     const summary = (data.courts || []).map(court => {
       const blocks = [];
@@ -107,6 +123,11 @@ async function checkCourtAvailability(date) {
       let blockPrice = null;
 
       for (const slot of court.slots) {
+        // Skip past slots if checking today
+        if (isToday && slot.start < minStartTime) {
+          continue;
+        }
+
         if (slot.available) {
           if (!blockStart) {
             blockStart = slot.start;
