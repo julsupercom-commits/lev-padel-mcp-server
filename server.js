@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 
 // ─── Startup grace period: ignore echoes right after deploy ──
 const SERVER_START_TIME = Date.now();
-const ECHO_GRACE_PERIOD = 30000; // 30 sec
+const ECHO_GRACE_PERIOD = 120000; // 2 min — Instagram can deliver echoes with 30+ sec delay
 
 // ─── Anti-duplicate: track recent Telegram notifications ──
 const recentNotifications = new Map(); // phone -> timestamp
@@ -96,44 +96,51 @@ const messageQueues = new Map(); // senderId -> { messages: [], images: [], time
 const MESSAGE_BATCH_DELAY = 5000; // 5 sec (people send 2-3 messages in a row)
 
 // ─── Follow-up reminders for inactive booking conversations ──
-const pendingFollowups = new Map(); // senderId -> { timer, type }
+const pendingFollowups = new Map(); // senderId -> { fireAt, type }
 const FOLLOWUP_COURT_DELAY = 40 * 60 * 1000;  // 40 min after showing courts
 const FOLLOWUP_PAYMENT_DELAY = 60 * 60 * 1000; // 60 min after lead created (waiting payment)
+const FOLLOWUP_MESSAGES = {
+  court_shown: "😊 Ви обирали корт — підкажіть, чи бронюємо? Якщо потрібна допомога з вибором, я тут 🎾",
+  payment_pending: "😊 Нагадуємо про бронювання. Підкажіть, чи все гаразд з оплатою? Якщо є питання — пишіть, допоможемо 💚",
+};
 
 function setFollowup(senderId, type) {
-  cancelFollowup(senderId); // clear any existing
+  cancelFollowup(senderId);
   const delay = type === "court_shown" ? FOLLOWUP_COURT_DELAY : FOLLOWUP_PAYMENT_DELAY;
-  const messages = {
-    court_shown: "😊 Ви обирали корт — підкажіть, чи бронюємо? Якщо потрібна допомога з вибором, я тут 🎾",
-    payment_pending: "😊 Нагадуємо про бронювання. Підкажіть, чи все гаразд з оплатою? Якщо є питання — пишіть, допоможемо 💚",
-  };
-  const timer = setTimeout(async () => {
-    pendingFollowups.delete(senderId);
-    // Don't send if admin took over or client already responded
-    const takeover = humanTakeover.get(senderId);
-    if (takeover && (Date.now() - takeover < HUMAN_TAKEOVER_TTL)) {
-      console.log(`[Followup] Skipped for ${senderId} — admin handling`);
-      return;
-    }
-    console.log(`[Followup] Sending "${type}" reminder to ${senderId}`);
-    try {
-      await sendInstagramMessage(senderId, messages[type]);
-    } catch (err) {
-      console.error("[Followup] Send failed:", err.message);
-    }
-  }, delay);
-  pendingFollowups.set(senderId, { timer, type });
-  console.log(`[Followup] Set "${type}" timer for ${senderId} (${delay / 60000} min)`);
+  const fireAt = Date.now() + delay;
+  pendingFollowups.set(senderId, { fireAt, type });
+  console.log(`[Followup] Set "${type}" for ${senderId} — fires at ${new Date(fireAt).toLocaleTimeString()} (in ${delay / 60000} min)`);
 }
 
 function cancelFollowup(senderId) {
-  const existing = pendingFollowups.get(senderId);
-  if (existing) {
-    clearTimeout(existing.timer);
+  if (pendingFollowups.has(senderId)) {
     pendingFollowups.delete(senderId);
     console.log(`[Followup] Cancelled for ${senderId}`);
   }
 }
+
+// Interval-based checker — runs every 30 sec, survives within a single process lifetime
+setInterval(async () => {
+  const now = Date.now();
+  for (const [senderId, { fireAt, type }] of pendingFollowups) {
+    if (now < fireAt) continue;
+    pendingFollowups.delete(senderId);
+    // Don't send if admin took over
+    const takeover = humanTakeover.get(senderId);
+    if (takeover && (now - takeover < HUMAN_TAKEOVER_TTL)) {
+      console.log(`[Followup] Skipped for ${senderId} — admin handling`);
+      continue;
+    }
+    const msg = FOLLOWUP_MESSAGES[type];
+    if (!msg) continue;
+    console.log(`[Followup] Sending "${type}" reminder to ${senderId}`);
+    try {
+      await sendInstagramMessage(senderId, msg);
+    } catch (err) {
+      console.error("[Followup] Send failed:", err.message);
+    }
+  }
+}, 30000);
 
 function cleanConversations() {
   const now = Date.now();
@@ -331,12 +338,37 @@ async function checkCourtAvailabilityAdmin(date, durationMin = 60) {
 }
 
 async function checkCourtAvailability(date, durationMin = 60) {
+  let admin, mcp;
   try {
-    return await checkCourtAvailabilityAdmin(date, durationMin);
+    [admin, mcp] = await Promise.all([
+      checkCourtAvailabilityAdmin(date, durationMin).catch(err => {
+        console.error(`[Availability] Admin API failed: ${err.message}`);
+        return null;
+      }),
+      checkCourtAvailabilityMCP(date, durationMin).catch(err => {
+        console.error(`[Availability] MCP (LuckyFit) failed: ${err.message}`);
+        return null;
+      }),
+    ]);
   } catch (err) {
-    console.error(`[Availability] Admin API failed: ${err.message}`);
+    console.error(`[Availability] Both sources failed: ${err.message}`);
     return { error: true, text: "Не вдалося перевірити доступність. Спробуйте пізніше або зателефонуйте +380 (77) 732 00 00" };
   }
+
+  if (!admin && !mcp) {
+    return { error: true, text: "Не вдалося перевірити доступність. Спробуйте пізніше або зателефонуйте +380 (77) 732 00 00" };
+  }
+  if (!admin) {
+    console.log(`[Availability] Using MCP only (Admin unavailable)`);
+    return mcp;
+  }
+  if (!mcp) {
+    console.log(`[Availability] Using Admin only (MCP/LuckyFit unavailable)`);
+    return admin;
+  }
+
+  console.log(`[Availability] Merging Admin + MCP (LuckyFit) data`);
+  return mergeAvailability(admin, mcp, date, durationMin);
 }
 
 function mergeAvailability(admin, mcp, date, durationMin) {
@@ -686,6 +718,7 @@ UA713220010000026006370018011
 Чим можу допомогти?
 — Забронювати корт
 — Записатись на тренування
+— Масаж та відновлення
 — Дізнатись про ціни та послуги
 
 ## ЯК ЗАБРОНЮВАТИ
@@ -728,13 +761,18 @@ Android: https://bit.ly/4zMFqZg
 Крок 3: ТІЛЬКИ ТЕПЕР виклич check_court_availability(date) → покажи корти, де є вільний блок потрібної тривалості.
 
 Правила показу:
-- Функція повертає JSON з полями: from (найраніший час початку), latestStart (найпізніший час початку), pricePerHour, totalPrice.
-- ⚠️⚠️ КРИТИЧНО: Клієнт може ПОЧИНАТИ гру ТІЛЬКИ від "from" до "latestStart"! Наприклад, якщо from=07:00, latestStart=10:00, тривалість=120хв → клієнт може почати о 07:00, 07:30, 08:00... до 10:00. О 10:30 або пізніше — НЕ МОЖНА! НІКОЛИ не пропонуй час пізніше ніж latestStart!
+- Функція повертає JSON з полями для кожного вікна доступності:
+  • freeFrom / freeTo — повне вільне вікно (наприклад, 17:00–19:30 = корт вільний увесь цей час)
+  • windowMinutes — скільки хвилин вільно в цьому вікні
+  • canStartFrom / canStartUntil — діапазон можливих часів ПОЧАТКУ гри (враховуючи тривалість)
+  • pricePerHour / totalPrice — ціна
+- ⚠️⚠️ КРИТИЧНО: Щоб перевірити чи клієнт може грати в конкретний час — дивись чи його бажаний час ПОЧИНАННЯ потрапляє в діапазон canStartFrom...canStartUntil! Наприклад, якщо canStartFrom=17:00, canStartUntil=18:00, тривалість=90хв → клієнт може почати о 17:00, 17:30 або 18:00.
+- ⚠️⚠️ КРИТИЧНО: Якщо клієнт питає "чи є корт на 18:00-19:30?" — шукай корти де 18:00 потрапляє між canStartFrom і canStartUntil! Не кажи "немає" якщо вікно freeFrom-freeTo покриває потрібний час!
 - Використовуй totalPrice з відповіді — не рахуй самостійно!
-- Якщо availableStartTimes = "немає вільних слотів" — корт зайнятий, НЕ показуй його!
+- Якщо availableWindows порожній масив або "немає вільних слотів" — корт зайнятий, НЕ показуй його!
 - Клуб працює до 23:00 — показуй слоти до 23:00
 - ⚠️ ПОКАЗУЙ ВСІ ДОСТУПНІ КОРТИ! Не обирай один — клієнт сам вирішить! Згрупуй по типу (преміум/стандарт/одиночний) і покажи КОЖЕН корт де є потрібний блок. Наприклад якщо 5 преміум кортів вільні — покажи всі 5, а не один!
-- Формат показу для кожного блоку: "[from]–[latestStart] (ціна: [totalPrice] грн)". Наприклад: "07:00–10:00 (ціна: 2400 грн)"
+- Формат показу: "[назва корту]: [canStartFrom]–[canStartUntil] (ціна: [totalPrice] грн)". Наприклад: "#9 Padel Purple: 17:00–18:00 (ціна: 2100 грн)" означає що можна ПОЧАТИ гру з 17:00 до 18:00
 3. Клієнт обрав → запитай контакти: «Щоб зафіксувати — скиньте прізвище, ім'я та номер телефону 😊»
 4. Виклич create_lead(name, phone, instagram, notes) ОДИН РАЗ:
    notes = "Instagram DM | Бронювання: [КОРТ], [ДАТА] о [ЧАС]-[ЧАС ЗАКІНЧЕННЯ]. До оплати: [СУМА] грн" (БЕЗ емодзі!)
@@ -757,10 +795,15 @@ P.S. Без передоплати клуб не може гарантувати
 ^^^ КІНЕЦЬ ШАБЛОНУ. Нічого не додавай після P.S.!
 6. СТОП.
 
-Коли клієнт надсилає підтвердження оплати (скріншот, «оплатив/переказав/сплатив») АБО підтвердив готівку («добре, оплачу на місці»):
+⚠️⚠️ ОБОВ'ЯЗКОВИЙ ШАБЛОН ПІСЛЯ ОПЛАТИ — копіюй ДОСЛІВНО, без пропусків!
+Коли клієнт надсилає підтвердження оплати (скріншот, «оплатив/переказав/сплатив») АБО підтвердив готівку («добре, оплачу на місці»), відправ ВЕСЬ текст нижче ДОСЛІВНО, кожен рядок:
+
+---ПОЧАТОК ШАБЛОНУ (копіювати повністю)---
 Дякуємо! 😊 Бронювання зафіксоване. Адміністратор відмітить оплату після зарахування коштів ✅
 
 На рецепції можна взяти в оренду ракетки та м'ячі 🎾
+
+💆 До речі, у нас працює професійний масажист-фізіотерапевт Олена — після гри можна зайти на відновлювальний масаж (від 800 грн / 30 хв). Хочете записатись?
 
 📲 Завантажуй наш додаток Lev Padel — зручне бронювання без зайвих зусиль!
 🍎 iPhone: bit.ly/4y59EVw
@@ -769,7 +812,11 @@ P.S. Без передоплати клуб не може гарантувати
 📢 Наше ком'юніті в Telegram — новини, турніри, набори в групи. Приєднуйтесь!
 👉 t.me/+-j5dqQtZJcozYjUy
 
-Чекаємо вас на Пластова 7! 💚🎾 → СТОП.
+Чекаємо вас на Пластова 7! 💚🎾
+---КІНЕЦЬ ШАБЛОНУ---
+
+⚠️ НЕ скорочуй! НЕ пропускай рядки! Особливо рядок про масажиста Олену — він ОБОВ'ЯЗКОВИЙ!
+→ СТОП після цього шаблону.
 
 ## СЦЕНАРІЙ: ТРЕНУВАННЯ
 
@@ -795,6 +842,41 @@ P.S. Без передоплати клуб не може гарантувати
 - Покажи 4 формати з короткими описами та діапазон цін
 - Покажи тренерів з цінами (інфо з секції ТРЕНУВАННЯ вище)
 - Якщо після цього хоче записатись → збери прізвище, ім'я, телефон, дату → create_lead → адмін
+
+## СЦЕНАРІЙ: МАСАЖ / ФІЗІОТЕРАПІЯ / РЕАБІЛІТАЦІЯ
+
+У клубі працює Олена Саврук — фізичний терапевт з 5-річним досвідом. Масажист, реабілітолог, фізіотерапевт.
+
+Графік: Пн / Ср / Пт, 10:00–20:00
+
+Послуги та ціни:
+- Масаж 30 хв — 800 грн
+- Масаж 60 хв — 1200 грн
+- Фізіотерапія (функціональні вправи) 60 хв — 1000 грн
+
+Спеціалізація: больові синдроми, післяопераційне відновлення, відновлення після травм. Робить не просто масаж, а глибоку роботу з тілом — після сеансу ви не просто розслабитесь, а відновитесь.
+
+Записатись можна через додаток Lev Padel (пункт «Послуги клуб») або тут у Direct.
+
+Коли клієнт питає про масаж / реабілітацію / фізіотерапію / Олену:
+1. Розкажи про послуги, ціни та графік
+2. Запитай: «Яка послуга вас цікавить?» і «На який день хочете записатись?»
+3. НЕ питай про час! Тільки день і послугу. Час підбере адміністратор.
+4. Збери прізвище, ім'я та номер телефону
+5. Виклич create_lead з notes = "Instagram DM | Запис на масаж/фізіотерапію до Олени. Послуга: [назва], бажаний день: [дата]. Зв'язатись!"
+6. Відповідай: «Заявку зафіксовано! Адміністратор зв'яжеться для підтвердження запису 😊»
+
+⚠️ Бот НЕ бронює час сам і НЕ питає про конкретну годину — тільки збирає заявку і передає адміну.
+
+## ⚠️ ОБОВ'ЯЗКОВО: КРОС-ПРОДАЖ МАСАЖУ ПІСЛЯ БРОНЮВАННЯ КОРТУ
+
+⚠️⚠️ КРИТИЧНО: Ти ЗАВЖДИ ОБОВ'ЯЗКОВО згадуєш про масаж у фінальному повідомленні після підтвердження оплати! Це частина шаблону — НЕ пропускай!
+
+Рядок про масаж УЖЕ вбудований у фінальний шаблон (після ракеток, перед додатком). Використовуй його як є:
+«💆 До речі, у нас працює професійний масажист-фізіотерапевт Олена — після гри можна зайти на відновлювальний масаж (від 800 грн / 30 хв). Хочете записатись?»
+
+Якщо клієнт зацікавився → запитай день і послугу (НЕ час!) → збери контакти → create_lead.
+Якщо відмовився — НЕ наполягай. Просто: «Гаразд! Гарної гри! 🎾💚»
 
 ## СЦЕНАРІЙ: БОНУС 500 ГРН НА ДЕПОЗИТ — АКЦІЯ СКАСОВАНА!
 
@@ -827,6 +909,42 @@ P.S. Без передоплати клуб не може гарантувати
 
 ⚠️ Бот НІКОЛИ не рахує знижку сам! Тільки передає адміну.
 
+## СЦЕНАРІЙ: ЗНИЖКА ДЛЯ УБД (учасники бойових дій)
+
+Коли клієнт питає про знижки для УБД / військових / ветеранів / учасників бойових дій:
+
+Знижки для УБД:
+— У будні до 16:00 — знижка 20%
+— Ввечері (після 16:00) та у вихідні — знижка 10%
+
+Бот повідомляє клієнту про знижку і далі веде стандартне бронювання. При створенні заявки через create_lead додай у notes: "УБД — знижка [20% або 10%]".
+
+⚠️ Бот НЕ перераховує ціну сам! Називай стандартну ціну корту і додавай: «Для УБД діє знижка [20%/10%], адміністратор врахує її при оплаті.»
+
+## СЦЕНАРІЙ: ПОДАРУНКОВІ СЕРТИФІКАТИ
+
+Коли клієнт питає про сертифікати / подарункові сертифікати / хоче подарувати гру:
+
+Розкажи:
+— 1 000 грн — перше знайомство з грою 🎾
+— 3 000 грн — кілька тренувань і відчутний прогрес 💪
+— 5 000 грн — повне занурення у гру та нові враження 🔥
+— 10 000 грн — максимум падел-досвіду 🏆
+— Діють на оренду корту та інвентарю
+— Доступні в електронному або фізичному форматі
+— Термін дії: 3 місяці (сертифікат на 10 000 грн — 6 місяців)
+
+Щоб оформити сертифікат — збери контакти:
+1. «Щоб оформити сертифікат, вкажіть, будь ласка: ваше ім'я та номер телефону 😊»
+2. ⚠️ Щойно клієнт надав ім'я і телефон → ОДРАЗУ виклич create_lead! Не чекай додаткових питань!
+   - name: ПІБ отримувача
+   - phone: телефон отримувача
+   - instagram: нік клієнта який пише
+   - notes: "Instagram DM | Подарунковий сертифікат на [СУМА] грн. Формат: [електронний/фізичний]. Замовник: @[нік]"
+3. Після створення ліда: «Дякуємо! Адміністратор зв'яжеться з вами для оплати та оформлення сертифікату 😊💚»
+
+⚠️ Бот НЕ приймає оплату за сертифікати! НЕ скидає реквізити! Тільки збирає дані і передає адміну.
+
 ## СЦЕНАРІЙ: ГРУПОВІ ЗАНЯТТЯ
 
 Постійних груп НЕ існує. Групи формуються за запитом через Telegram.
@@ -842,7 +960,12 @@ P.S. Без передоплати клуб не може гарантувати
 
 Падел — ідеальний формат для корпоративу! 🎾
 Організовуємо тімбілдінг-турніри, корпоративне дозвілля з тренером, святкування.
-→ Збери к-сть людей + дату → create_lead → передай адміну.
+Порядок дій:
+1. Розкажи про можливості (турніри, корпоративне дозвілля з тренером)
+2. Запитай: кількість людей, орієнтовну дату, ім'я та телефон контактної особи
+3. ⚠️ Щойно отримав ім'я і телефон → ОДРАЗУ виклич create_lead! notes: "Instagram DM | Корпоратив/тімбілдінг на [к-сть] осіб, дата: [дата]. Зв'язатись!"
+4. Після create_lead: «Дякуємо! Адміністратор зв'яжеться з вами для обговорення всіх деталей 😊»
+⚠️ НЕ кажи "ми вам зателефонуємо" БЕЗ виклику create_lead! Спочатку create_lead — потім обіцянка!
 
 ## ІНШІ ТЕМИ
 
@@ -869,7 +992,8 @@ P.S. Без передоплати клуб не може гарантувати
 ## КРИТИЧНІ ПРАВИЛА
 
 1. create_lead — СТРОГО ОДИН РАЗ за діалог. Завжди передавай instagram нік клієнта
-2. Без прізвища, імені та телефону — НЕ створюй лід. Репост/реакція без тексту — просто привітайся
+2. Без імені та телефону — НЕ створюй лід. Репост/реакція без тексту — просто привітайся
+10. ⚠️⚠️ НІКОЛИ не кажи "ми вам зателефонуємо" або "адміністратор зв'яжеться" БЕЗ виклику create_lead! Спочатку виклич create_lead — і ТІЛЬКИ ПОТІМ обіцяй зв'язок! Якщо ти обіцяєш зв'язок без create_lead — адміністратор НІКОЛИ не дізнається про клієнта!
 3. Після фінального повідомлення — СТОП
 4. Якщо create_lead повернув помилку — скажи що заявка зафіксована, адмін обробить
 5. Якщо клієнт питає «куди платити» — продублюй реквізити
@@ -996,17 +1120,27 @@ async function callOpenAI(messages, senderId, depth = 0) {
               const cfg = COURT_CATALOG.find(c => c.num === courtNum);
               const type = cfg ? (cfg.num === 0 ? "одиночний" : (cfg.offpeak >= 1200 ? "преміум" : "стандарт")) : "";
               if (!Array.isArray(court.availableBlocks)) {
-                return { court: court.court, type, availableStartTimes: "немає вільних слотів" };
+                return { court: court.court, type, availableWindows: [] };
               }
               return {
                 court: court.court,
                 type,
-                availableStartTimes: court.availableBlocks.map(blk => {
+                availableWindows: court.availableBlocks.map(blk => {
+                  const [fH, fM] = blk.from.split(":").map(Number);
                   const [tH, tM] = blk.to.split(":").map(Number);
+                  const windowMinutes = (tH * 60 + tM) - (fH * 60 + fM);
                   const latestMins = (tH * 60 + tM) - dur;
                   const latestStart = `${String(Math.floor(latestMins / 60)).padStart(2, "0")}:${String(latestMins % 60).padStart(2, "0")}`;
                   const totalPrice = Math.round(blk.price * (dur / 60));
-                  return { from: blk.from, latestStart, pricePerHour: blk.price, totalPrice };
+                  return {
+                    freeFrom: blk.from,
+                    freeTo: blk.to,
+                    windowMinutes,
+                    canStartFrom: blk.from,
+                    canStartUntil: latestStart,
+                    pricePerHour: blk.price,
+                    totalPrice,
+                  };
                 }),
               };
             });
@@ -1107,7 +1241,7 @@ async function processMessage(senderId, userTexts, imageDataUrls = []) {
     // Only triggers when bot says "заявку зафіксовано" or "передам заявку" (past tense / done),
     // NOT when bot says "зв'яжеться найближчим часом" (future promise while still asking for contacts)
     if (!leadCreated.get(senderId) && response) {
-      const promisePatterns = /заявк[уі].{0,10}зафіксован|зафіксован.{0,10}заявк|передам.{0,15}заявк|заявк.{0,10}створен|передав.{0,15}адміністратор|зараз передам/i;
+      const promisePatterns = /заявк[уі].{0,10}зафіксован|зафіксован.{0,10}заявк|передам.{0,15}заявк|заявк.{0,10}створен|передав.{0,15}адміністратор|зараз передам|ми вам зателефонуємо|вам зателефонує|зв'яжемось|зв'яжеться.{0,15}адміністратор|адміністратор.{0,15}зв'яжеться|передам.{0,10}інформацію|передам.{0,10}дані|передам.{0,10}контакт/i;
       if (promisePatterns.test(response)) {
         // Search last 6 user messages for phone number
         const recentUserMsgs = conv.messages
@@ -1132,8 +1266,7 @@ async function processMessage(senderId, userTexts, imageDataUrls = []) {
           for (const line of lines) {
             if (line.match(/(\+?3?8?0\d{9}|0\d{9})/)) {
               const nameFromLine = line.replace(/(\+?3?8?0\d{9}|0\d{9})/g, "").replace(/[^\p{L}\s'-]/gu, "").trim();
-              // Name must be 2-4 capitalized words, each starting with uppercase
-              if (nameFromLine.match(/^[\p{Lu}][\p{Ll}'ʼ-]+(\s+[\p{Lu}][\p{Ll}'ʼ-]+){1,3}$/u)) {
+              if (nameFromLine.match(/^[\p{Lu}][\p{Ll}'ʼ-]+(\s+[\p{Lu}][\p{Ll}'ʼ-]+){0,3}$/u) && nameFromLine.length >= 3) {
                 name = nameFromLine;
                 break;
               }
@@ -1144,7 +1277,7 @@ async function processMessage(senderId, userTexts, imageDataUrls = []) {
           if (!name) {
             for (const line of [...lines].reverse()) {
               const cleaned = line.replace(/[^\p{L}\s'ʼ-]/gu, "").trim();
-              if (cleaned.match(/^[\p{Lu}][\p{Ll}'ʼ-]+(\s+[\p{Lu}][\p{Ll}'ʼ-]+){1,2}$/u) && cleaned.length >= 5 && cleaned.length < 40) {
+              if (cleaned.match(/^[\p{Lu}][\p{Ll}'ʼ-]+(\s+[\p{Lu}][\p{Ll}'ʼ-]+){0,2}$/u) && cleaned.length >= 3 && cleaned.length < 40) {
                 name = cleaned;
                 break;
               }
@@ -1505,7 +1638,7 @@ app.post("/webhook", async (req, res) => {
       // ── Echo handling: distinguish bot echo from admin echo ──
       if (event.message?.is_echo) {
         if (Date.now() - SERVER_START_TIME < ECHO_GRACE_PERIOD) {
-          console.log(`[Echo] Skipped during grace period`);
+          console.log(`[Echo] Grace period — ignoring echo for ${event.recipient?.id} (not setting takeover)`);
           continue;
         }
 
