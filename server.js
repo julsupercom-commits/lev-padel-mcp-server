@@ -1129,10 +1129,8 @@ async function callOpenAI(messages, senderId, depth = 0) {
               if (!Array.isArray(court.availableBlocks)) {
                 return { court: court.court, type, availableWindows: [] };
               }
-              return {
-                court: court.court,
-                type,
-                availableWindows: court.availableBlocks.map(blk => {
+              const windows = court.availableBlocks
+                .map(blk => {
                   const [fH, fM] = blk.from.split(":").map(Number);
                   const [tH, tM] = blk.to.split(":").map(Number);
                   const windowMinutes = (tH * 60 + tM) - (fH * 60 + fM);
@@ -1148,7 +1146,12 @@ async function callOpenAI(messages, senderId, depth = 0) {
                     pricePerHour: blk.price,
                     totalPrice,
                   };
-                }),
+                })
+                .filter(w => w.canStartFrom !== w.canStartUntil);
+              return {
+                court: court.court,
+                type,
+                availableWindows: windows,
               };
             });
             result = JSON.stringify({ date: avail.date, requestedDuration: dur, courts: enriched }, null, 2);
