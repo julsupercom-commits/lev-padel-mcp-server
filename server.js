@@ -600,7 +600,7 @@ const BOT_SYSTEM_PROMPT = `# AI-бот LEV Padel Club · Instagram DM
    в) Якщо все ок — підтверди бронювання
    Якщо не можеш розібрати деталі на скріншоті — скажи «Дякуємо! Адміністратор перевірить оплату 😊»
    Якщо це не квитанція а інше фото — реагуй за контекстом
-9. Якщо клієнт поділився публікацією/reels або згадав нас — ЗАВЖДИ відповідай: «Дякуємо за згадку! 🎾🔥 Раді, що вам у нас сподобалось! Приходьте ще — завжди раді бачити в LEV Padel 💚». НЕ кажи "не можу переглядати зображення" — це share/згадка, не фото
+9. Якщо клієнт поділився публікацією/reels або згадав нас — дивись чи є ТЕКСТ від клієнта разом зі share! Якщо є питання (наприклад "яка вартість тренування?") — ВІДПОВІДАЙ НА ПИТАННЯ, а не "дякуємо за згадку"! Шаблон «Дякуємо за згадку! 🎾🔥 Раді, що вам у нас сподобалось! Приходьте ще — завжди раді бачити в LEV Padel 💚» використовуй ТІЛЬКИ якщо клієнт просто поділився без тексту або текст не містить питання. НЕ кажи "не можу переглядати зображення" — це share/згадка, не фото
 10. НІКОЛИ не пиши англійською. Тільки українською або російською
 11. Якщо клієнт надіслав кілька повідомлень поспіль — прочитай ВСІ і дай ОДНУ відповідь
 12. НІКОЛИ не використовуй «на жаль», «нажаль», «на жаль,» — ЗАБОРОНЕНО! Ми не вибачаємось, ми просто інформуємо. Замість «На жаль, ми можемо бронювати лише на 60/90/120 хвилин» → «Ми бронюємо на 60, 90 або 120 хвилин 😊»
@@ -1734,16 +1734,32 @@ app.post("/webhook", async (req, res) => {
           continue;
         }
         lastShareResponse.set(senderId, Date.now());
-        // МОВЧИМО — не відповідаємо, діалог залишається непрочитаним для SMM/адміна (репост)
-        console.log(`[Webhook] Story mention/share from ${senderId} — no reply (keeping unread for SMM)`);
-        continue;
+
+        // If the share event ALSO carries meaningful text — process it as a regular message
+        const shareText = event.message?.text || "";
+        const hasRealQuestion = shareText.length > 5 && /[а-яіїєґa-z]{3,}/i.test(shareText);
+        if (hasRealQuestion) {
+          console.log(`[Webhook] Share/mention from ${senderId} WITH text: "${shareText.substring(0, 80)}" — processing as regular message`);
+          // Fall through to regular message handling below
+        } else {
+          console.log(`[Webhook] Story mention/share from ${senderId} — no reply (keeping unread for SMM)`);
+          continue;
+        }
       }
 
       // ── Suppress text event that follows a story mention (same Instagram event split into 2) ──
+      // BUT only suppress if it's a bare duplicate, not a real question
       const recentShare = lastShareResponse.get(senderId);
       if (recentShare && (Date.now() - recentShare < 10000)) {
-        console.log(`[Webhook] Suppressing post-mention text from ${senderId} (${Math.round((Date.now() - recentShare) / 1000)}s after mention)`);
-        continue;
+        const followText = event.message?.text || "";
+        const hasRealContent = followText.length > 5 && /[а-яіїєґa-z]{3,}/i.test(followText);
+        if (hasRealContent) {
+          console.log(`[Webhook] Post-mention text from ${senderId} has real content: "${followText.substring(0, 80)}" — processing`);
+          // Fall through to regular handling
+        } else {
+          console.log(`[Webhook] Suppressing empty post-mention text from ${senderId} (${Math.round((Date.now() - recentShare) / 1000)}s after mention)`);
+          continue;
+        }
       }
 
       // ── Emoji реакції та чисті emoji — МОВЧИМО ЗАВЖДИ ──
