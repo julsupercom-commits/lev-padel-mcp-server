@@ -155,18 +155,27 @@ function cleanConversations() {
 // ─── Shared Tool Functions ───────────────────────────────
 
 // ─── Lucky Fit MCP: real-time court reservations ─────────
+const NEW_PRICES_DATE = "2026-11-01";
+
 const COURT_CATALOG = [
-  { num: 1, name: "#1 Land Rover Padel Court", offpeak: 1200, peak: 1400 },
-  { num: 2, name: "#2 Guzema Padel Court",     offpeak: 1200, peak: 1400 },
-  { num: 3, name: "#3 Smakota Padel Court",    offpeak: 1100, peak: 1300 },
-  { num: 4, name: "#4 Varenycia Padel Court",  offpeak: 1100, peak: 1300 },
-  { num: 5, name: "#5 Shyna365 Padel Court",   offpeak: 1100, peak: 1300 },
-  { num: 6, name: "#6 LEGIT Community Store Padel Court", offpeak: 1100, peak: 1300 },
-  { num: 7, name: "#7 Intergal Bud Padel Court", offpeak: 1200, peak: 1400 },
-  { num: 8, name: "#8 NYME Padel Court",       offpeak: 1200, peak: 1400 },
-  { num: 9, name: "#9 Padel Purple",           offpeak: 1200, peak: 1400 },
-  { num: 0, name: "iSolar Padel Court 1x1",    offpeak: 800,  peak: 1100 },
+  { num: 1, name: "#1 Land Rover Padel Court", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 2, name: "#2 Guzema Padel Court",     offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 3, name: "#3 Smakota Padel Court",    offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
+  { num: 4, name: "#4 Varenycia Padel Court",  offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
+  { num: 5, name: "#5 Shyna365 Padel Court",   offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
+  { num: 6, name: "#6 LEGIT Community Store Padel Court", offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
+  { num: 7, name: "#7 Intergal Bud Padel Court", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 8, name: "#8 NYME Padel Court",       offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 9, name: "#9 Padel Purple",           offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 0, name: "iSolar Padel Court 1x1",    offpeak: 1100, peak: 1600, oldOffpeak: 800,  oldPeak: 1100 },
 ];
+
+function getCourtPrice(court, hour, isWeekend, dateStr) {
+  if (dateStr < NEW_PRICES_DATE) {
+    return isWeekend ? court.oldPeak : (hour >= 17 ? court.oldPeak : court.oldOffpeak);
+  }
+  return isWeekend || hour >= 17 ? court.peak : court.offpeak;
+}
 
 function matchCourtNum(itemName) {
   const m = itemName.match(/^#(\d+)/);
@@ -204,13 +213,15 @@ async function mcpQuery(sql) {
   }
 }
 
-function calcBookingSlots(startHour, amount, courtCfg, isWeekend) {
-  if (isWeekend) return Math.round((amount / courtCfg.peak) * 2);
-  if (startHour >= 17) return Math.round((amount / courtCfg.peak) * 2);
+function calcBookingSlots(startHour, amount, courtCfg, isWeekend, dateStr) {
+  const peakPrice = dateStr >= NEW_PRICES_DATE ? courtCfg.peak : courtCfg.oldPeak;
+  const offpeakPrice = dateStr >= NEW_PRICES_DATE ? courtCfg.offpeak : courtCfg.oldOffpeak;
+  if (isWeekend) return Math.round((amount / peakPrice) * 2);
+  if (startHour >= 17) return Math.round((amount / peakPrice) * 2);
   const offpeakAvail = 17 - startHour;
-  const maxOffpeakCost = offpeakAvail * courtCfg.offpeak;
-  if (amount <= maxOffpeakCost + 50) return Math.round((amount / courtCfg.offpeak) * 2);
-  const peakHours = (amount - offpeakAvail * courtCfg.offpeak) / courtCfg.peak;
+  const maxOffpeakCost = offpeakAvail * offpeakPrice;
+  if (amount <= maxOffpeakCost + 50) return Math.round((amount / offpeakPrice) * 2);
+  const peakHours = (amount - offpeakAvail * offpeakPrice) / peakPrice;
   return Math.round((offpeakAvail + peakHours) * 2);
 }
 
@@ -256,7 +267,7 @@ async function checkCourtAvailabilityMCP(date, durationMin = 60) {
         idx = SLOTS.findIndex(s => { const [h, m] = s.split(":").map(Number); return h * 60 + m >= mins; });
       }
       if (idx === -1) continue;
-      const numSlots = calcBookingSlots(sH + sM / 60, parseFloat(bk.amount), court, weekend);
+      const numSlots = calcBookingSlots(sH + sM / 60, parseFloat(bk.amount), court, weekend, date);
       for (let i = 0; i < numSlots && idx + i < avail.length; i++) avail[idx + i] = false;
     }
 
@@ -266,7 +277,7 @@ async function checkCourtAvailabilityMCP(date, durationMin = 60) {
       const [h] = SLOTS[i].split(":").map(Number);
       const slotMins = h * 60 + parseInt(SLOTS[i].split(":")[1]);
       if (isToday && slotMins < minStartMins) continue;
-      const price = weekend ? court.peak : (h >= 17 ? court.peak : court.offpeak);
+      const price = getCourtPrice(court, h, weekend, date);
       if (avail[i]) {
         if (bStart === null) { bStart = SLOTS[i]; bPrice = price; }
         else if (price !== bPrice) { blocks.push({ from: bStart, to: SLOTS[i], price: bPrice }); bStart = SLOTS[i]; bPrice = price; }
@@ -440,8 +451,8 @@ function mergeAvailability(admin, mcp, date, durationMin) {
     let bStart = null, bPrice = null;
     for (const s of SLOTS) {
       const [h] = s.split(":").map(Number);
-      const cat = COURT_CATALOG.find(c => c.num === courtNum) || { offpeak: 1200, peak: 1400 };
-      const price = weekend ? cat.peak : (h >= 17 ? cat.peak : cat.offpeak);
+      const cat = COURT_CATALOG.find(c => c.num === courtNum) || { offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 };
+      const price = getCourtPrice(cat, h, weekend, date);
       if (!allBooked.has(s)) {
         if (bStart === null) { bStart = s; bPrice = price; }
         else if (price !== bPrice) { blocks.push({ from: bStart, to: s, price: bPrice }); bStart = s; bPrice = price; }
@@ -629,20 +640,20 @@ const BOT_SYSTEM_PROMPT = `# AI-бот LEV Padel Club · Instagram DM
 
 ## КОРТИ (10 шт.)
 
-Усі корти від іспанського Padel Galis (на таких проводять World Padel Tour). За розміром, склом та конструкцією — однакові. Різниця у покритті.
+Усі корти від іспанського Padel Galis (на таких проводять World Padel Tour). За розміром, склом та конструкцією — однакові.
 
-💎 Преміум корти (#1 Land Rover, #2 Guzema, #7 Intergal Bud, #8 NYME, #9 Padel Purple):
-Пік 1400 грн/год, Офпік 1200 грн/год
-Преміум-покриття — інший рівень: більш витривале, кращий відскок та контроль м'яча. Фіолетові та чорні корти вирізняються і створюють особливу атмосферу.
+⚠️ НОВІ ЦІНИ з 1 листопада 2026:
+Усі корти (2×2 і одиночний) мають ОДНАКОВУ ціну:
+☀️ Офпік (Пн-Пт 8:00–17:00): 1100 грн/год
+🌙 Пік (Пн-Пт 17:00–23:00 + Сб-Нд весь день): 1600 грн/год
 
-🔵 Стандарт корти (#3 Smakota, #4 Varenycia, #5 Shyna365, #6 LEGIT Community Store):
-Пік 1300 грн/год, Офпік 1100 грн/год
-Якісне покриття від Padel Galis. Повноцінний падел за комфортною ціною.
+Поділу на преміум та стандарт більше НЕМАЄ — усі корти за єдиною ціною.
 
-🎾 Одиночний корт (1×1): Пік 1100 грн/год, Офпік 800 грн/год
+Бронювання, зроблені ДО 1 листопада та оплачені, діють за старою ціною. Нові бронювання на дати з 1 листопада — за новою ціною.
 
-- Офпік: Пн-Пт 8:00–17:00
-- Пік: Пн-Пт 17:00–23:00 + Сб-Нд весь день
+Корти 2×2 (9 шт.): #1 Land Rover, #2 Guzema, #3 Smakota, #4 Varenycia, #5 Shyna365, #6 LEGIT Community Store, #7 Intergal Bud, #8 NYME, #9 Padel Purple
+Одиночний корт (1×1): iSolar — для гри 1 на 1
+
 - Тривалість: 60 / 90 / 120 хв
 - Корти 2×2 комфортні для гри від 2 до 4 гравців. Одиночний — менший, для гри 1 на 1
 
@@ -745,12 +756,9 @@ Android: https://bit.ly/4zMFqZg
 
 Коли клієнт питає скільки коштує / яка вартість / прайс (без share поста):
 У нас 10 кортів 🎾
-📋 Ціни за годину:
-Стандартні — 1100 грн (офпік) / 1300 грн (пік)
-Преміум — 1200 грн (офпік) / 1400 грн (пік)
-Одиночний (1×1) — 800 грн (офпік) / 1100 грн (пік)
-⏰ Офпік: Пн-Пт до 17:00
-⏰ Пік: Пн-Пт з 17:00 + Сб-Нд весь день
+📋 Ціни за годину (єдина ціна для всіх кортів):
+☀️ Офпік (Пн-Пт до 17:00) — 1100 грн/год
+🌙 Пік (Пн-Пт з 17:00 + Сб-Нд весь день) — 1600 грн/год
 Оренда ракетки — від 100 грн/год, м'ячики — 50 грн (при тренуванні з тренером ракетки та м'ячі входять у вартість!)
 На який день хочете забронювати? 😊
 
@@ -773,13 +781,12 @@ Android: https://bit.ly/4zMFqZg
 - Використовуй totalPrice з відповіді — не рахуй самостійно!
 - Якщо availableWindows порожній масив або "немає вільних слотів" — корт зайнятий, НЕ показуй його!
 - Клуб працює до 23:00 — показуй слоти до 23:00
-- ⚠️ ПОКАЗУЙ ВСІ ДОСТУПНІ КОРТИ! Не обирай один — клієнт сам вирішить! Згрупуй по полю "type" з відповіді API: "преміум", "стандарт", "одиночний". НЕ визначай тип сам — довіряй ТІЛЬКИ полю "type"! Покажи КОЖЕН корт де є потрібний блок. Наприклад якщо 5 преміум кортів вільні — покажи всі 5, а не один!
-- ⚠️ Якщо клієнт просить конкретну ціну (наприклад «за 1100») — покажи ВСІ доступні корти, а ті що відповідають ціні відзнач першими. НЕ ховай преміум-корти тільки тому що клієнт питав про стандартну ціну — покажи їх також з поміткою «(преміум, [ціна] грн)». Клієнт може захотіти доплатити!
+- ⚠️ ПОКАЗУЙ ВСІ ДОСТУПНІ КОРТИ! Не обирай один — клієнт сам вирішить! Усі корти мають однакову ціну, тому НЕ групуй їх за типом. Просто покажи список доступних кортів з часами і цінами. Якщо є одиночний корт — покажи його окремо з поміткою (1×1).
 - ⚠️⚠️ КРИТИЧНО: Коли клієнт обирає корт — переконайся що цей корт БУВ У СПИСКУ доступних! Якщо корту НЕ було в результатах check_court_availability — він ЗАЙНЯТИЙ! Скажи: «На жаль, цей корт зайнятий на цей час» і запропонуй вільні корти зі списку!
 - Формат показу:
   • Якщо canStartFrom ≠ canStartUntil: "[назва корту]: [canStartFrom]–[canStartUntil] (ціна: [totalPrice] грн за [тривалість] хв)"
   • Якщо canStartFrom = canStartUntil (тільки один час): "[назва корту]: [canStartFrom] (ціна: [totalPrice] грн за [тривалість] хв)"
-  Наприклад: "#3 Smakota: 22:00 (ціна: 1300 грн за 60 хв)" означає ТІЛЬКИ о 22:00, більше ніколи!
+  Наприклад: "#3 Smakota: 22:00 (ціна: 1600 грн за 60 хв)" означає ТІЛЬКИ о 22:00, більше ніколи!
 - ⚠️⚠️ КРИТИЧНО: totalPrice — це ВЖЕ ФІНАЛЬНА СУМА за всю тривалість! НЕ множ її ще раз на тривалість! Якщо totalPrice = 2100 і тривалість 90 хв — до оплати РІВНО 2100 грн, а НЕ 3150! Просто бери totalPrice як є!
 - ⚠️⚠️ КРИТИЧНО: Клієнт може ПОЧИНАТИ гру ТІЛЬКИ в часі між canStartFrom і canStartUntil! Якщо корт показує "22:00" — клієнт може почати ТІЛЬКИ о 22:00! Якщо клієнт просить 21:00, а корт доступний тільки з 22:00 — скажи що цей корт вільний тільки з 22:00! НЕ бронюй на час, якого НЕ БУЛО в результатах!
 3. Клієнт обрав → запитай контакти: «Щоб зафіксувати — скиньте прізвище, ім'я та номер телефону 😊»
@@ -996,7 +1003,7 @@ P.S. Без передоплати клуб не може гарантувати
 
 Вартість першого заняття:
 👨‍🏫 Тренер: від 600 грн
-🏟 Корт: від 1100 грн/год (офпік Пн-Пт до 17:00) або від 1300 грн/год (пік)
+🏟 Корт: 1100 грн/год (офпік Пн-Пт до 17:00) або 1600 грн/год (пік)
 
 Щоб записатись — залиште прізвище, ім'я та номер телефону 😊
 Адміністратор зв'яжеться, підбере зручний час і тренера!
@@ -1190,7 +1197,7 @@ async function callOpenAI(messages, senderId, depth = 0) {
             const enriched = avail.courts.map(court => {
               const courtNum = matchCourtNum(court.court);
               const cfg = COURT_CATALOG.find(c => c.num === courtNum);
-              const type = cfg ? (cfg.num === 0 ? "одиночний" : (cfg.offpeak >= 1200 ? "преміум" : "стандарт")) : "";
+              const type = cfg ? (cfg.num === 0 ? "одиночний (1×1)" : "2×2") : "";
               if (!Array.isArray(court.availableBlocks)) {
                 return { court: court.court, type, availableWindows: [] };
               }
