@@ -97,16 +97,31 @@ const MESSAGE_BATCH_DELAY = 5000; // 5 sec (people send 2-3 messages in a row)
 
 // ─── Follow-up reminders for inactive booking conversations ──
 const pendingFollowups = new Map(); // senderId -> { fireAt, type }
-const FOLLOWUP_COURT_DELAY = 40 * 60 * 1000;  // 40 min after showing courts
-const FOLLOWUP_PAYMENT_DELAY = 60 * 60 * 1000; // 60 min after lead created (waiting payment)
+const FOLLOWUP_DELAYS = {
+  court_shown: 40 * 60 * 1000,     // 40 min — showed courts but didn't pick
+  payment_pending: 60 * 60 * 1000, // 60 min — lead created, waiting for payment
+  abandoned_price: 3 * 60 * 60 * 1000,    // 3 hours — asked about prices, left
+  abandoned_training: 3 * 60 * 60 * 1000, // 3 hours — asked about training, left
+  abandoned_general: 3 * 60 * 60 * 1000,  // 3 hours — general chat, left
+};
 const FOLLOWUP_MESSAGES = {
   court_shown: "😊 Ви обирали корт — підкажіть, чи бронюємо? Якщо потрібна допомога з вибором, я тут 🎾",
   payment_pending: "😊 Нагадуємо про бронювання. Підкажіть, чи все гаразд з оплатою? Якщо є питання — пишіть, допоможемо 💚",
+  abandoned_price: "Привіт! 😊 Ви цікавились цінами — підкажіть, чи залишились питання? Буду рада допомогти з бронюванням 🎾",
+  abandoned_training: "Привіт! 😊 Ви цікавились тренуванням — можу підібрати тренера та зручний час. Напишіть, коли будете готові 💪",
+  abandoned_general: "Привіт! 😊 Якщо залишились питання — пишіть, я тут. Будемо раді бачити вас у LEV Padel 💛",
 };
+// Priority: higher-priority followups override lower ones
+const FOLLOWUP_PRIORITY = { payment_pending: 3, court_shown: 2, abandoned_price: 1, abandoned_training: 1, abandoned_general: 0 };
 
 function setFollowup(senderId, type) {
+  const existing = pendingFollowups.get(senderId);
+  if (existing && (FOLLOWUP_PRIORITY[existing.type] || 0) > (FOLLOWUP_PRIORITY[type] || 0)) {
+    console.log(`[Followup] Kept higher-priority "${existing.type}" over "${type}" for ${senderId}`);
+    return;
+  }
   cancelFollowup(senderId);
-  const delay = type === "court_shown" ? FOLLOWUP_COURT_DELAY : FOLLOWUP_PAYMENT_DELAY;
+  const delay = FOLLOWUP_DELAYS[type] || 3 * 60 * 60 * 1000;
   const fireAt = Date.now() + delay;
   pendingFollowups.set(senderId, { fireAt, type });
   console.log(`[Followup] Set "${type}" for ${senderId} — fires at ${new Date(fireAt).toLocaleTimeString()} (in ${delay / 60000} min)`);
@@ -129,6 +144,11 @@ setInterval(async () => {
     const takeover = humanTakeover.get(senderId);
     if (takeover && (now - takeover < HUMAN_TAKEOVER_TTL)) {
       console.log(`[Followup] Skipped for ${senderId} — admin handling`);
+      continue;
+    }
+    // Don't send abandoned follow-ups if lead was already created
+    if (type.startsWith("abandoned_") && leadCreated.get(senderId)) {
+      console.log(`[Followup] Skipped abandoned "${type}" for ${senderId} — lead already created`);
       continue;
     }
     const msg = FOLLOWUP_MESSAGES[type];
@@ -1405,6 +1425,30 @@ async function processMessage(senderId, userTexts, imageDataUrls = []) {
           } else {
             console.log(`[SafetyNet] GPT promised lead but name not found (strict validation). Phone="${phone}". Skipping auto-create.`);
           }
+        }
+      }
+    }
+
+    // ── Abandoned conversation follow-up ──
+    // If no higher-priority followup is set (court_shown, payment_pending),
+    // schedule an abandoned-chat reminder based on conversation topic.
+    // Only if client sent at least 2 messages (skip accidental taps).
+    const userMsgCount = conv.messages.filter(m => m.role === "user").length;
+    if (userMsgCount >= 2 && !leadCreated.get(senderId)) {
+      const existing = pendingFollowups.get(senderId);
+      const existingPriority = existing ? (FOLLOWUP_PRIORITY[existing.type] || 0) : -1;
+      if (existingPriority < 1) {
+        // Determine topic from all user messages
+        const allUserText = conv.messages
+          .filter(m => m.role === "user")
+          .map(m => typeof m.content === "string" ? m.content : "")
+          .join(" ").toLowerCase();
+        if (/ціна|вартість|скільки коштує|прайс|price/.test(allUserText)) {
+          setFollowup(senderId, "abandoned_price");
+        } else if (/тренер|тренування|заняття|навчання|урок/.test(allUserText)) {
+          setFollowup(senderId, "abandoned_training");
+        } else {
+          setFollowup(senderId, "abandoned_general");
         }
       }
     }
