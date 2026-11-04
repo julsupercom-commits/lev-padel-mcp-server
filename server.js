@@ -159,14 +159,14 @@ const NEW_PRICES_DATE = "2026-11-01";
 
 const COURT_CATALOG = [
   { num: 1, name: "#1 Land Rover Padel Court", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
-  { num: 2, name: "#2 Guzema Padel Court",     offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 2, name: "#2 GUZEMA Padel Court",     offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
   { num: 3, name: "#3 Smakota Padel Court",    offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
   { num: 4, name: "#4 Varenycia Padel Court",  offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
   { num: 5, name: "#5 Shyna365 Padel Court",   offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
   { num: 6, name: "#6 LEGIT Community Store Padel Court", offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
   { num: 7, name: "#7 Intergal Bud Padel Court", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
   { num: 8, name: "#8 NYME Padel Court",       offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
-  { num: 9, name: "#9 Padel Purple",           offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 9, name: "#9 Padel Court Purle 2x2",  offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
   { num: 0, name: "iSolar Padel Court 1x1",    offpeak: 800,  peak: 1100, oldOffpeak: 800,  oldPeak: 1100 },
 ];
 
@@ -656,7 +656,7 @@ const BOT_SYSTEM_PROMPT = `# AI-бот LEV Padel Club · Instagram DM
 
 Бронювання, зроблені ДО 1 листопада та оплачені, діють за старою ціною. Нові бронювання на дати з 1 листопада — за новою ціною.
 
-Корти 2×2 (9 шт.): #1 Land Rover, #2 Guzema, #3 Smakota, #4 Varenycia, #5 Shyna365, #6 LEGIT Community Store, #7 Intergal Bud, #8 NYME, #9 Padel Purple
+Корти 2×2 (9 шт.): #1 Land Rover, #2 GUZEMA, #3 Smakota, #4 Varenycia, #5 Shyna365, #6 LEGIT Community Store, #7 Intergal Bud, #8 NYME, #9 Padel Court Purle
 Одиночний корт (1×1): iSolar — для гри 1 на 1
 
 - Тривалість: 60 / 90 / 120 хв
