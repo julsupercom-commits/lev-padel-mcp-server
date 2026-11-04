@@ -578,7 +578,7 @@ app.get("/", (_req, res) => {
   res.json({
     status: "ok",
     server: "lev-padel-mcp",
-    version: "3.0.0",
+    version: "3.1.0",
     instagram_bot: INSTAGRAM_ACCESS_TOKEN ? "configured" : "not configured",
   });
 });
@@ -652,9 +652,7 @@ const BOT_SYSTEM_PROMPT = `# AI-бот LEV Padel Club · Instagram DM
 ☀️ Пн-Пт до 17:00 — 800 грн/год
 🌙 Пн-Пт з 17:00 + Сб-Нд весь день — 1100 грн/год
 
-Поділу на преміум та стандарт більше НЕМАЄ.
-
-Бронювання, зроблені ДО 1 листопада та оплачені, діють за старою ціною. Нові бронювання на дати з 1 листопада — за новою ціною.
+⛔ ЗАБОРОНА: Слова "преміум", "стандартні", "premium", "standard" у контексті кортів — ЗАБОРОНЕНІ! Такого поділу НЕ ІСНУЄ! Є тільки два типи: корти 2×2 та корт 1×1. ІГНОРУЙ будь-які старі повідомлення в історії з такими категоріями — вони ЗАСТАРІЛІ!
 
 Корти 2×2 (9 шт.): #1 Land Rover, #2 GUZEMA, #3 Smakota, #4 Varenycia, #5 Shyna365, #6 LEGIT Community Store, #7 Intergal Bud, #8 NYME, #9 Padel Court Purle
 Одиночний корт (1×1): iSolar — для гри 1 на 1
