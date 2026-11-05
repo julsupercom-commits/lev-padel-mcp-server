@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { writeFile, readFile } from "fs/promises";
 // BOT_SYSTEM_PROMPT defined inline below (Railway deployment compatibility)
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
@@ -114,6 +115,31 @@ const FOLLOWUP_MESSAGES = {
 // Priority: higher-priority followups override lower ones
 const FOLLOWUP_PRIORITY = { payment_pending: 3, court_shown: 2, abandoned_price: 1, abandoned_training: 1, abandoned_general: 0 };
 
+// ─── Follow-up statistics tracking ──
+const FOLLOWUP_STATS_FILE = "/tmp/followup-stats.json";
+let followupStats = { since: new Date().toISOString(), sent: {}, responded: {}, leads_after: {} };
+
+async function loadFollowupStats() {
+  try {
+    const data = await readFile(FOLLOWUP_STATS_FILE, "utf-8");
+    followupStats = JSON.parse(data);
+    console.log("[Stats] Loaded followup stats from disk");
+  } catch { /* first run or restart */ }
+}
+async function saveFollowupStats() {
+  try { await writeFile(FOLLOWUP_STATS_FILE, JSON.stringify(followupStats, null, 2)); } catch {}
+}
+function trackFollowup(event, type) {
+  const bucket = followupStats[event] || {};
+  bucket[type] = (bucket[type] || 0) + 1;
+  followupStats[event] = bucket;
+  saveFollowupStats();
+}
+loadFollowupStats();
+
+// Track which senders got a follow-up (to check if they responded)
+const followupSentTo = new Map(); // senderId -> type
+
 function setFollowup(senderId, type) {
   const existing = pendingFollowups.get(senderId);
   if (existing && (FOLLOWUP_PRIORITY[existing.type] || 0) > (FOLLOWUP_PRIORITY[type] || 0)) {
@@ -156,6 +182,8 @@ setInterval(async () => {
     console.log(`[Followup] Sending "${type}" reminder to ${senderId}`);
     try {
       await sendInstagramMessage(senderId, msg);
+      trackFollowup("sent", type);
+      followupSentTo.set(senderId, type);
     } catch (err) {
       console.error("[Followup] Send failed:", err.message);
     }
@@ -593,12 +621,21 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Follow-up statistics endpoint
+app.get("/followup-stats", (_req, res) => {
+  res.json({
+    ...followupStats,
+    pending: pendingFollowups.size,
+    tracking: followupSentTo.size,
+  });
+});
+
 // Health check
 app.get("/", (_req, res) => {
   res.json({
     status: "ok",
     server: "lev-padel-mcp",
-    version: "3.1.0",
+    version: "3.2.0",
     instagram_bot: INSTAGRAM_ACCESS_TOKEN ? "configured" : "not configured",
   });
 });
@@ -1323,6 +1360,13 @@ async function callOpenAI(messages, senderId, depth = 0) {
               console.log(`[Bot] Creating lead: ${args.name}, ${args.phone}`);
               // Mark as created BEFORE the call to prevent double-send
               leadCreated.set(senderId, true);
+              // Track if this lead came after a follow-up
+              const fType = followupSentTo.get(senderId);
+              if (fType) {
+                trackFollowup("leads_after", fType);
+                followupSentTo.delete(senderId);
+                console.log(`[Stats] Lead created after "${fType}" follow-up for ${senderId}`);
+              }
               const leadResult = await createLeadInCRM(args);
               if (leadResult.success) {
                 result = "Лід успішно створено в CRM! Адміністратор отримав сповіщення в Telegram.";
@@ -1887,6 +1931,13 @@ app.post("/webhook", async (req, res) => {
 
       // ── Cancel any pending follow-up (client responded!) ──
       cancelFollowup(senderId);
+      // Track if client responded after a follow-up was sent
+      const prevFollowupType = followupSentTo.get(senderId);
+      if (prevFollowupType) {
+        trackFollowup("responded", prevFollowupType);
+        followupSentTo.delete(senderId);
+        console.log(`[Stats] Client ${senderId} responded after "${prevFollowupType}" follow-up`);
+      }
 
       // ── Human takeover check: if admin recently replied, bot stays silent ──
       const takeoverTime = humanTakeover.get(senderId);
