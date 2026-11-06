@@ -206,16 +206,16 @@ function cleanConversations() {
 const NEW_PRICES_DATE = "2026-11-01";
 
 const COURT_CATALOG = [
-  { num: 1, name: "#1 Land Rover Padel Court", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
-  { num: 2, name: "#2 GUZEMA Padel Court",     offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
-  { num: 3, name: "#3 Smakota Padel Court",    offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
-  { num: 4, name: "#4 Varenycia Padel Court",  offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
-  { num: 5, name: "#5 Shyna365 Padel Court",   offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
-  { num: 6, name: "#6 LEGIT Community Store Padel Court", offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
-  { num: 7, name: "#7 Intergal Bud Padel Court", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
-  { num: 8, name: "#8 NYME Padel Court",       offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
-  { num: 9, name: "#9 Padel Court Purle 2x2",  offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
-  { num: 0, name: "iSolar Padel Court 1x1",    offpeak: 800,  peak: 1100, oldOffpeak: 800,  oldPeak: 1100 },
+  { num: 1, name: "#1 Land Rover Padel Court", color: "чорний", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 2, name: "#2 GUZEMA Padel Court",     color: "чорний", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 3, name: "#3 Smakota Padel Court",    color: "синій", offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
+  { num: 4, name: "#4 Varenycia Padel Court",  color: "синій", offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
+  { num: 5, name: "#5 Shyna365 Padel Court",   color: "синій", offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
+  { num: 6, name: "#6 LEGIT Community Store Padel Court", color: "синій", offpeak: 1100, peak: 1600, oldOffpeak: 1100, oldPeak: 1300 },
+  { num: 7, name: "#7 Intergal Bud Padel Court", color: "пурпурний", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 8, name: "#8 NYME Padel Court",       color: "пурпурний", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 9, name: "#9 Padel Court Purle 2x2",  color: "пурпурний", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
+  { num: 0, name: "iSolar Padel Court 1x1",    color: "синій", offpeak: 800,  peak: 1100, oldOffpeak: 800,  oldPeak: 1100 },
 ];
 
 function getCourtPrice(court, hour, isWeekend, dateStr) {
@@ -697,7 +697,13 @@ const BOT_SYSTEM_PROMPT = `# AI-бот LEV Padel Club · Instagram DM
 
 ## КОРТИ (10 шт.)
 
-Усі корти від іспанського Padel Galis (на таких проводять World Padel Tour). За розміром, склом та конструкцією — однакові. Корти мають три варіанти кольору покриття: сині, чорні та пурпурні (фіолетові). НЕ кажи що всі корти одного кольору!
+Усі корти від іспанського Padel Galis (на таких проводять World Padel Tour). За розміром, склом та конструкцією — однакові. Корти мають три варіанти кольору покриття. НЕ кажи що всі корти одного кольору!
+
+🖤 Чорні корти: #1 Land Rover, #2 GUZEMA
+🔵 Сині корти: #3 Smakota, #4 Varenycia, #5 Shyna365, #6 LEGIT Community Store, iSolar (1×1)
+🟣 Пурпурні (фіолетові) корти: #7 Intergal Bud, #8 NYME, #9 Padel Purple
+
+Коли клієнт питає про колір — називай конкретний колір кожного корту!
 
 ⚠️ НОВІ ЦІНИ з 1 листопада 2026:
 
