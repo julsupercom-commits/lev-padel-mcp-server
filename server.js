@@ -215,14 +215,15 @@ const COURT_CATALOG = [
   { num: 7, name: "#7 Intergal Bud Padel Court", color: "пурпурний", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
   { num: 8, name: "#8 NYME Padel Court",       color: "пурпурний", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
   { num: 9, name: "#9 Padel Court Purle 2x2",  color: "пурпурний", offpeak: 1100, peak: 1600, oldOffpeak: 1200, oldPeak: 1400 },
-  { num: 0, name: "iSolar Padel Court 1x1",    color: "синій", offpeak: 800,  peak: 1100, oldOffpeak: 800,  oldPeak: 1100 },
+  { num: 0, name: "iSolar Padel Court 1x1",    color: "синій", offpeak: 800,  peak: 1100, oldOffpeak: 800,  oldPeak: 1100, peakFrom: 16 },
 ];
 
 function getCourtPrice(court, hour, isWeekend, dateStr) {
+  const peakHour = court.peakFrom || 17;
   if (dateStr < NEW_PRICES_DATE) {
-    return isWeekend ? court.oldPeak : (hour >= 17 ? court.oldPeak : court.oldOffpeak);
+    return isWeekend ? court.oldPeak : (hour >= peakHour ? court.oldPeak : court.oldOffpeak);
   }
-  return isWeekend || hour >= 17 ? court.peak : court.offpeak;
+  return isWeekend || hour >= peakHour ? court.peak : court.offpeak;
 }
 
 function matchCourtNum(itemName) {
@@ -719,8 +720,8 @@ const BOT_SYSTEM_PROMPT = `# AI-бот LEV Padel Club · Instagram DM
 🌙 Пн-Пт з 17:00 + Сб-Нд весь день — 1600 грн/год
 
 Корт 1×1 (iSolar):
-☀️ Пн-Пт до 17:00 — 800 грн/год
-🌙 Пн-Пт з 17:00 + Сб-Нд весь день — 1100 грн/год
+☀️ Пн-Пт до 16:00 — 800 грн/год
+🌙 Пн-Пт з 16:00 + Сб-Нд весь день — 1100 грн/год
 
 ⛔ ЗАБОРОНА: Слова "преміум", "стандартні", "premium", "standard" у контексті кортів — ЗАБОРОНЕНІ! Такого поділу НЕ ІСНУЄ! Є тільки два типи: корти 2×2 та корт 1×1. ІГНОРУЙ будь-які старі повідомлення в історії з такими категоріями — вони ЗАСТАРІЛІ!
 
@@ -871,8 +872,8 @@ Android: https://bit.ly/4zMFqZg
 ☀️ Пн-Пт до 17:00 — 1100 грн/год
 🌙 Пн-Пт з 17:00 + Сб-Нд весь день — 1600 грн/год
 Корт 1×1 (iSolar):
-☀️ Пн-Пт до 17:00 — 800 грн/год
-🌙 Пн-Пт з 17:00 + Сб-Нд весь день — 1100 грн/год
+☀️ Пн-Пт до 16:00 — 800 грн/год
+🌙 Пн-Пт з 16:00 + Сб-Нд весь день — 1100 грн/год
 Оренда ракетки — від 100 грн/год, м'ячики — 50 грн (при тренуванні з тренером ракетки та м'ячі входять у вартість!)
 На який день хочете забронювати? 😊
 
