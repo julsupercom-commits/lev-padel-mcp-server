@@ -371,14 +371,21 @@ async function checkCourtAvailabilityAdmin(date, durationMin = 60) {
     ? `${String(currentHour + 1).padStart(2, "0")}:00`
     : `${String(currentHour).padStart(2, "0")}:00`;
 
+  const d = new Date(date + "T12:00:00");
+  const weekend = d.getDay() === 0 || d.getDay() === 6;
+
   const summary = (data.courts || []).map(court => {
+    const courtNum = matchCourtNum(court.courtName);
+    const cat = COURT_CATALOG.find(c => c.num === courtNum);
     const blocks = [];
     let blockStart = null, blockPrice = null;
     for (const slot of court.slots) {
       if (isToday && slot.start < minStartTime) continue;
+      const [h] = slot.start.split(":").map(Number);
+      const price = cat ? getCourtPrice(cat, h, weekend, date) : slot.price;
       if (slot.available) {
-        if (!blockStart) { blockStart = slot.start; blockPrice = slot.price; }
-        else if (slot.price !== blockPrice) { blocks.push({ from: blockStart, to: slot.start, price: blockPrice }); blockStart = slot.start; blockPrice = slot.price; }
+        if (!blockStart) { blockStart = slot.start; blockPrice = price; }
+        else if (price !== blockPrice) { blocks.push({ from: blockStart, to: slot.start, price: blockPrice }); blockStart = slot.start; blockPrice = price; }
       } else {
         if (blockStart) { blocks.push({ from: blockStart, to: slot.start, price: blockPrice }); blockStart = null; }
       }
