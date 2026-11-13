@@ -909,6 +909,11 @@ Android: https://bit.ly/4zMFqZg
    «На [час] все зайнято 😔 Найближчий вільний варіант: #[корт]: [час] (ціна: [totalPrice] грн за [тривалість] хв). Підходить?»
    Покажи максимум 2-3 найближчі варіанти (найближчий час до запитаного). НЕ показуй 7 кортів на 22:00!
 
+⚠️ КОРОТШІ ВІКНА (shorterWindows):
+Якщо клієнт просить 90 або 120 хвилин, і корт НЕ вільний на запитану тривалість, але є поле shorterWindows — це означає що корт вільний на менший час (60+ хв). ОБОВ'ЯЗКОВО згадай це як альтернативу:
+«На [час] корт [назва] вільний, але тільки на [windowMinutes] хв (ціна: [totalPrice] грн). На повні [запитана тривалість] хв найближчий вільний час — [альтернатива]. Який варіант підходить?»
+Це дає клієнту вибір: взяти менше часу або обрати інший слот.
+
 СИТУАЦІЯ Б — Клієнт НЕ вказав конкретний час (просто "на сьогодні" / "на завтра"):
 Покажи ВСІ доступні корти з часами і цінами. Клієнт сам обере.
 
@@ -1361,30 +1366,40 @@ async function callOpenAI(messages, senderId, depth = 0) {
               if (!Array.isArray(court.availableBlocks)) {
                 return { court: court.court, type, availableWindows: [] };
               }
-              const windows = court.availableBlocks
-                .map(blk => {
+              const allWindows = court.availableBlocks.map(blk => {
                   const [fH, fM] = blk.from.split(":").map(Number);
                   const [tH, tM] = blk.to.split(":").map(Number);
                   const windowMinutes = (tH * 60 + tM) - (fH * 60 + fM);
+                  return { blk, windowMinutes };
+              });
+              const windows = allWindows
+                .filter(w => w.windowMinutes >= dur)
+                .map(({ blk, windowMinutes }) => {
+                  const [fH, fM] = blk.from.split(":").map(Number);
+                  const [tH, tM] = blk.to.split(":").map(Number);
                   const latestMins = (tH * 60 + tM) - dur;
                   const latestStart = `${String(Math.floor(latestMins / 60)).padStart(2, "0")}:${String(latestMins % 60).padStart(2, "0")}`;
                   const totalPrice = Math.round(blk.price * (dur / 60));
                   return {
-                    freeFrom: blk.from,
-                    freeTo: blk.to,
-                    windowMinutes,
-                    canStartFrom: blk.from,
-                    canStartUntil: latestStart,
-                    pricePerHour: blk.price,
-                    totalPrice,
+                    freeFrom: blk.from, freeTo: blk.to, windowMinutes,
+                    canStartFrom: blk.from, canStartUntil: latestStart,
+                    pricePerHour: blk.price, totalPrice,
                   };
-                })
-                .filter(w => w.windowMinutes >= dur);
-              return {
-                court: court.court,
-                type,
-                availableWindows: windows,
-              };
+                });
+              const res = { court: court.court, type, availableWindows: windows };
+              if (dur > 60) {
+                const shorter = allWindows
+                  .filter(w => w.windowMinutes >= 60 && w.windowMinutes < dur)
+                  .map(({ blk, windowMinutes }) => {
+                    const totalPrice = Math.round(blk.price * (windowMinutes / 60));
+                    return {
+                      freeFrom: blk.from, freeTo: blk.to, windowMinutes,
+                      pricePerHour: blk.price, totalPrice,
+                    };
+                  });
+                if (shorter.length > 0) res.shorterWindows = shorter;
+              }
+              return res;
             });
             result = JSON.stringify({ date: avail.date, requestedDuration: dur, courts: enriched }, null, 2);
             console.log(`[Bot] Availability result for GPT:\n${result.slice(0, 2000)}`);
