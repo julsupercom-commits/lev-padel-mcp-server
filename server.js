@@ -1317,7 +1317,7 @@ async function callOpenAI(messages, senderId, depth = 0) {
         tools: OPENAI_TOOLS,
         tool_choice: "auto",
         temperature: 0.7,
-        max_tokens: 1200,
+        max_tokens: 2000,
       }),
     });
     clearTimeout(timeout);
@@ -1401,8 +1401,13 @@ async function callOpenAI(messages, senderId, depth = 0) {
               }
               return res;
             });
-            result = JSON.stringify({ date: avail.date, requestedDuration: dur, courts: enriched }, null, 2);
-            console.log(`[Bot] Availability result for GPT:\n${result.slice(0, 2000)}`);
+            const available = enriched.filter(c => c.availableWindows.length > 0);
+            const booked = enriched.filter(c => c.availableWindows.length === 0);
+            const bookedNames = booked.map(c => c.court);
+            const obj = { date: avail.date, requestedDuration: dur, totalCourts: enriched.length, availableCount: available.length, courts: available };
+            if (bookedNames.length > 0) obj.fullyBooked = bookedNames;
+            result = JSON.stringify(obj, null, 2);
+            console.log(`[Bot] Availability result for GPT (${available.length}/${enriched.length} available):\n${result.slice(0, 2000)}`);
           }
           if (!avail.error) setFollowup(senderId, "court_shown");
         } else if (toolCall.function.name === "create_lead") {
