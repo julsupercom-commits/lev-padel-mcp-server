@@ -265,9 +265,10 @@ async function mcpQuery(sql) {
 function calcBookingSlots(startHour, amount, courtCfg, isWeekend, dateStr) {
   const peakPrice = dateStr >= NEW_PRICES_DATE ? courtCfg.peak : courtCfg.oldPeak;
   const offpeakPrice = dateStr >= NEW_PRICES_DATE ? courtCfg.offpeak : courtCfg.oldOffpeak;
+  const peakFrom = courtCfg.peakFrom || 17;
   if (isWeekend) return Math.round((amount / peakPrice) * 2);
-  if (startHour >= 17) return Math.round((amount / peakPrice) * 2);
-  const offpeakAvail = 17 - startHour;
+  if (startHour >= peakFrom) return Math.round((amount / peakPrice) * 2);
+  const offpeakAvail = peakFrom - startHour;
   const maxOffpeakCost = offpeakAvail * offpeakPrice;
   if (amount <= maxOffpeakCost + 50) return Math.round((amount / offpeakPrice) * 2);
   const peakHours = (amount - offpeakAvail * offpeakPrice) / peakPrice;
