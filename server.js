@@ -10,7 +10,7 @@ import { randomUUID } from "crypto";
 
 // ─── Startup grace period: ignore echoes right after deploy ──
 const SERVER_START_TIME = Date.now();
-const ECHO_GRACE_PERIOD = 120000; // 2 min — Instagram can deliver echoes with 30+ sec delay
+const ECHO_GRACE_PERIOD = 300000; // 5 min — covers Railway build time + Instagram webhook retries after deploy
 
 // ─── Anti-duplicate: track recent Telegram notifications ──
 const recentNotifications = new Map(); // phone -> timestamp
