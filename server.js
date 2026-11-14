@@ -660,7 +660,7 @@ const BOT_SYSTEM_PROMPT = `# AI-бот LEV Padel Club · Instagram DM
 
 1. Завершуй повідомлення закриваючим питанням — «Бронюємо?», «На який час?»
 2. Якщо час/тренер зайнятий — ЗАВЖДИ пропонуй альтернативу: інший час, інший день або інший корт. Ніколи не кажи просто «всі зайняті» без альтернативи
-3. Будь стислим — це чат, не email
+3. Будь стислим — це чат, не email. ВИНЯТОК: список вільних кортів — показуй ВСІ, навіть якщо їх 8-10! Клієнт обирає за назвою/кольором
 4. Не вигадуй інформацію — не знаєш, чесно скажи і передай адміну
 5. Вітання — «Вітаю!» або «Привіт!» (не «Доброго дня» — клієнт може писати вночі)
 6. СТОП тільки після: прощання клієнта, надсилання реквізитів, або підтвердження запису. Коли клієнт каже «Добре», «Ок», «Дякую» на фінальне повідомлення — відповідай ОДНИМ коротким реченням без питань і СТОП
@@ -1424,7 +1424,16 @@ async function callOpenAI(messages, senderId, depth = 0) {
             const available = enriched.filter(c => c.availableWindows.length > 0);
             const booked = enriched.filter(c => c.availableWindows.length === 0);
             const bookedNames = booked.map(c => c.court);
-            const obj = { date: avail.date, requestedDuration: dur, totalCourts: enriched.length, availableCount: available.length, courts: available };
+            const availNames = available.map(c => c.court);
+            const obj = {
+              date: avail.date,
+              requestedDuration: dur,
+              totalCourts: enriched.length,
+              availableCount: available.length,
+              instruction: `ПОКАЖИ ВСІ ${available.length} кортів клієнту! Не скорочуй список!`,
+              availableCourts: availNames,
+              courts: available,
+            };
             if (bookedNames.length > 0) obj.fullyBooked = bookedNames;
             result = JSON.stringify(obj, null, 2);
             console.log(`[Bot] Availability result for GPT (${available.length}/${enriched.length} available):\n${result.slice(0, 2000)}`);
