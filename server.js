@@ -2128,6 +2128,11 @@ app.post("/webhook", async (req, res) => {
             }
             messageText = event.message.text || "";
           }
+          // Ephemeral / vanish-mode messages — ignore silently
+          else if (types.every(t => t === "ephemeral" || t === "ig_reel" || t === "story_mention")) {
+            console.log(`[Webhook] Ephemeral/vanish message from ${senderId} (${types.join(", ")}) — skipping`);
+            continue;
+          }
           // Other unknown attachment types
           else {
             messageText = `[Клієнт надіслав: ${types.join(", ")}]`;
