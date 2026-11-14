@@ -337,18 +337,16 @@ async function checkCourtAvailabilityMCP(date, durationMin = 60) {
     }
     if (bStart !== null) blocks.push({ from: bStart, to: "23:00", price: bPrice });
 
-    const minDur = Math.max(durationMin, 60);
-    const validBlocks = blocks
+    const allBlocks = blocks
       .map(b => {
         const [fH, fM] = b.from.split(":").map(Number);
         const [tH, tM] = b.to.split(":").map(Number);
         return { ...b, durationMinutes: (tH * 60 + tM) - (fH * 60 + fM) };
-      })
-      .filter(b => b.durationMinutes >= minDur);
+      });
 
     return {
       court: court.name,
-      availableBlocks: validBlocks.length > 0 ? validBlocks : `Немає вільних блоків на ${minDur}+ хвилин`,
+      availableBlocks: allBlocks,
     };
   });
 
@@ -394,12 +392,10 @@ async function checkCourtAvailabilityAdmin(date, durationMin = 60) {
     }
     if (blockStart && court.slots.length > 0) blocks.push({ from: blockStart, to: court.operatingHours.end, price: blockPrice });
 
-    const minDur = Math.max(durationMin, 60);
-    const validBlocks = blocks
-      .map(b => { const [fH, fM] = b.from.split(":").map(Number); const [tH, tM] = b.to.split(":").map(Number); return { ...b, durationMinutes: (tH * 60 + tM) - (fH * 60 + fM) }; })
-      .filter(b => b.durationMinutes >= minDur);
+    const allBlocks = blocks
+      .map(b => { const [fH, fM] = b.from.split(":").map(Number); const [tH, tM] = b.to.split(":").map(Number); return { ...b, durationMinutes: (tH * 60 + tM) - (fH * 60 + fM) }; });
 
-    return { court: court.courtName, availableBlocks: validBlocks.length > 0 ? validBlocks : `Немає вільних блоків на ${minDur}+ хвилин` };
+    return { court: court.courtName, availableBlocks: allBlocks };
   });
 
   return { error: false, date: data.date, courts: summary };
@@ -519,18 +515,16 @@ function mergeAvailability(admin, mcp, date, durationMin) {
     }
     if (bStart !== null) blocks.push({ from: bStart, to: "23:00", price: bPrice });
 
-    const minDur = Math.max(durationMin, 60);
-    const validBlocks = blocks
+    const allBlocks = blocks
       .map(b => {
         const [fH, fM] = b.from.split(":").map(Number);
         const [tH, tM] = b.to.split(":").map(Number);
         return { ...b, durationMinutes: (tH * 60 + tM) - (fH * 60 + fM) };
-      })
-      .filter(b => b.durationMinutes >= minDur);
+      });
 
     return {
       court: adminCourt.court,
-      availableBlocks: validBlocks.length > 0 ? validBlocks : `Немає вільних блоків на ${minDur}+ хвилин`,
+      availableBlocks: allBlocks,
     };
   });
 
