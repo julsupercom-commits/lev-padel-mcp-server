@@ -874,52 +874,24 @@ Android: https://bit.ly/4zMFqZg
 
 ## СЦЕНАРІЙ: БРОНЮВАННЯ КОРТУ
 
-⚠️ НЕ показуй доступність поки не знаєш дату, тривалість І бажаний час! Питай КРОК ЗА КРОКОМ:
+⚠️ НЕ показуй доступність поки не знаєш дату і тривалість! Питай КРОК ЗА КРОКОМ:
 
 Крок 1: Запитай дату — «На яку дату вас цікавить?» (якщо клієнт не вказав)
 Крок 2: Запитай тривалість — «На скільки часу: 60, 90 чи 120 хвилин?» (якщо клієнт не вказав)
-Крок 3: Запитай бажаний час — «Який час вам зручний?» (якщо клієнт не вказав)
-Крок 4: ТІЛЬКИ ТЕПЕР виклич check_court_availability(date) → покажи результат з урахуванням бажаного часу.
+Крок 3: Якщо клієнт вказав бажаний час — добре! Якщо ні — можеш одразу перевірити, бот сам покаже всі доступні.
+Крок 4: Виклич check_court_availability(date, duration, preferred_time). ОБОВ'ЯЗКОВО передай preferred_time якщо клієнт вказав час!
 
-⚠️ ВИНЯТОК: Якщо клієнт ЯВНО просить "які є вільні?", "покажи всі варіанти", "що є?" — НЕ питай час, одразу покажи повний список доступних кортів.
+⚠️ ВИНЯТОК: Якщо клієнт ЯВНО просить "які є вільні?", "покажи всі варіанти", "що є?" — НЕ питай час, виклич без preferred_time.
 
-Правила показу:
-- Функція повертає JSON з полями для кожного вікна доступності:
-  • freeFrom / freeTo — повне вільне вікно
-  • windowMinutes — скільки хвилин вільно
-  • canStartFrom / canStartUntil — діапазон можливих годин ПОЧАТКУ гри (враховуючи тривалість)
-  • pricePerHour / totalPrice — ціна
-- Використовуй totalPrice з відповіді — не рахуй самостійно!
-- ⚠️⚠️ КРИТИЧНО: totalPrice — це ВЖЕ ФІНАЛЬНА СУМА за всю тривалість! НЕ множ її ще раз!
-- Якщо availableWindows порожній — корт зайнятий, НЕ показуй його!
-- Клуб працює до 23:00
+⚠️⚠️⚠️ ГОЛОВНЕ ПРАВИЛО:
+Функція check_court_availability САМА фільтрує корти і повертає ГОТОВИЙ ТЕКСТОВИЙ РЕЗУЛЬТАТ!
+Тобі треба ПРОСТО ПОКАЗАТИ те що функція повернула! НЕ фільтруй, НЕ скорочуй, НЕ перефразовуй!
+Якщо функція каже "7 кортів ДОСТУПНІ о 13:00" — покажи ВСІ 7!
+Якщо функція каже "о 13:00 ЖОДЕН корт не доступний" — покажи 2-3 найближчі варіанти з результату!
 
-⚠️⚠️⚠️ ГОЛОВНЕ ПРАВИЛО ПОКАЗУ КОРТІВ:
-
-СИТУАЦІЯ А — Клієнт вказав КОНКРЕТНИЙ ЧАС (наприклад "на 20:00"):
-1. Перевір ВСІ корти: чи бажаний час (20:00) потрапляє в діапазон canStartFrom...canStartUntil хоча б одного корту
-2. Якщо ТАК — покажи ВСІ корти де цей час доступний (навіть якщо їх 7-8-9!). Клієнт сам обере який йому подобається. НЕ обрізай список до 2-3! НЕ показуй корти де цей час НЕ доступний.
-3. Якщо НІ (жоден корт не може почати о 20:00) — НЕ ВИВАЛЮЙ ВЕСЬ СПИСОК! Замість цього:
-   «На [час] все зайнято 😔 Найближчий вільний варіант: #[корт]: [час] (ціна: [totalPrice] грн за [тривалість] хв). Підходить?»
-   Покажи максимум 2-3 найближчі варіанти (найближчий час до запитаного). НЕ показуй 7 кортів на 22:00!
-   ⚠️ Обмеження "2-3 варіанти" стосується ТІЛЬКИ цієї ситуації (коли жоден корт не доступний на запитаний час)! Коли корти Є на запитаний час — показуй ВСІ!
-
-⚠️ КОРОТШІ ВІКНА (shorterWindows):
-Якщо клієнт просить 90 або 120 хвилин, і корт НЕ вільний на запитану тривалість, але є поле shorterWindows — це означає що корт вільний на менший час (60+ хв). ОБОВ'ЯЗКОВО згадай це як альтернативу:
-«На [час] корт [назва] вільний, але тільки на [windowMinutes] хв (ціна: [totalPrice] грн). На повні [запитана тривалість] хв найближчий вільний час — [альтернатива]. Який варіант підходить?»
-Це дає клієнту вибір: взяти менше часу або обрати інший слот.
-
-СИТУАЦІЯ Б — Клієнт НЕ вказав конкретний час (просто "на сьогодні" / "на завтра" / "на 2 години"):
-Покажи ВСІ доступні корти з часами і цінами. Клієнт сам обере. НЕ обрізай список!
-
-Формат показу:
-  • Діапазон: "[назва]: [canStartFrom]–[canStartUntil] (ціна: [totalPrice] грн за [тривалість] хв)"
-  • Один час: "[назва]: [canStartFrom] (ціна: [totalPrice] грн за [тривалість] хв)"
-  • У БУДНІ: якщо слот починається з 08:00 до 16:00 — додай в кінці рядка: " 🔥 акція: 2 год за ціною 1!"
-  • Слоти з 17:00+ у будні та ВСІ слоти у вихідні — без позначки акції
-- Якщо є одиночний корт (iSolar 1×1) — покажи його окремо з поміткою (1×1), він має іншу ціну
-- ⚠️⚠️ КРИТИЧНО: Клієнт може ПОЧИНАТИ гру ТІЛЬКИ між canStartFrom і canStartUntil! НЕ бронюй на час, якого НЕ БУЛО в результатах!
-- ⚠️⚠️ КРИТИЧНО: Коли клієнт обирає корт — переконайся що він БУВ У СПИСКУ доступних!
+⚠️⚠️ КРИТИЧНО: НЕ рахуй ціну самостійно! Бери totalPrice як є!
+⚠️⚠️ КРИТИЧНО: НЕ бронюй на час, якого НЕ БУЛО в результатах!
+⚠️⚠️ КРИТИЧНО: Коли клієнт обирає корт — переконайся що він БУВ У СПИСКУ!
 3. Клієнт обрав → запитай контакти: «Щоб зафіксувати — скиньте прізвище, ім'я та номер телефону 😊 І підкажіть, звідки ви про нас дізнались? (Instagram, Google, друзі порадили, інше)»
 3.5. ⚠️⚠️ ОБОВ'ЯЗКОВО: Коли клієнт надав контакти і ти готовий створити лід — СПОЧАТКУ виклич check_court_availability(date) ЩЕ РАЗ щоб переконатись що корт досі вільний! Між показом кортів і отриманням контактів може пройти 5-15 хвилин — за цей час хтось інший міг забронювати! Якщо корт вже зайнятий — повідом клієнта і запропонуй інші вільні корти. НЕ створюй лід на зайнятий корт!
 4. Тільки якщо корт підтверджено вільний — виклич create_lead(name, phone, instagram, notes) ОДИН РАЗ:
@@ -1264,7 +1236,7 @@ create_lead з notes = "Instagram DM | НОВАЧОК з реклами. Пер�
 8. Сума бронювання = totalPrice з check_court_availability. НЕ рахуй сам! totalPrice ВЖЕ враховує тривалість! Просто бери цю цифру як є!
 9. ⚠️ Якщо клієнт хоче ТРЕНЕРА — НІКОЛИ не викликай check_court_availability! Не показуй корти, не пропонуй години! ТІЛЬКИ збирай ім'я + телефон → create_lead. Тренер сам підбере корт і час. Навіть якщо клієнт також хоче погратись без тренера — все в одну заявку, адмін розбереться!
 12. ⚠️ МОВА: НІКОЛИ не вживай слово «часи» (наприклад «доступні часи», «вільні часи»). Замість цього кажи «години», «вільні години», «доступні години» або «проміжки часу». Слово «часи» дратує клієнтів!
-11. ⚠️⚠️ КРИТИЧНО: Бронюй ТІЛЬКИ корти, які були у результатах check_court_availability! Якщо корт НЕ з'явився у списку доступних — він ЗАЙНЯТИЙ! НЕ бронюй його, навіть якщо клієнт просить саме цей корт! Скажи: «На жаль, цей корт зайнятий на цей час. Ось доступні варіанти:» і покажи список вільних кортів ще раз. НІКОЛИ не вигадуй доступність корту — довіряй ТІЛЬКИ даним з check_court_availability!`;
+11. ⚠️⚠️ КРИТИЧНО: Бронюй ТІЛЬКИ корти, які були у результатах check_court_availability! Якщо корт НЕ з'явився у списку доступних — він ЗАЙНЯТИЙ! НЕ бронюй його, навіть якщо клієнт просить саме цей корт! Скажи: «Цей корт зайнятий на цей час 😔 Ось доступні варіанти:» і покажи список вільних кортів ще раз. НІКОЛИ не вигадуй доступність корту — довіряй ТІЛЬКИ даним з check_court_availability!`;
 
 // OpenAI function definitions for the bot
 const OPENAI_TOOLS = [
@@ -1272,7 +1244,7 @@ const OPENAI_TOOLS = [
     type: "function",
     function: {
       name: "check_court_availability",
-      description: "Перевірити доступність кортів LEV Padel на конкретну дату. Повертає вільні слоти з цінами. ОБОВ'ЯЗКОВО передавай duration — без нього функція покаже всі блоки, навіть занадто короткі!",
+      description: "Перевірити доступність кортів LEV Padel на конкретну дату. Повертає вільні слоти з цінами. ОБОВ'ЯЗКОВО передавай duration і preferred_time (якщо клієнт вказав час)!",
       parameters: {
         type: "object",
         properties: {
@@ -1282,7 +1254,11 @@ const OPENAI_TOOLS = [
           },
           duration: {
             type: "number",
-            description: "Тривалість бронювання в хвилинах: 60, 90 або 120. Функція поверне ТІЛЬКИ корти з блоком достатньої тривалості.",
+            description: "Тривалість бронювання в хвилинах: 60, 90 або 120.",
+          },
+          preferred_time: {
+            type: "string",
+            description: "Бажаний час початку гри у форматі HH:MM, наприклад 13:00. Якщо клієнт вказав час — ОБОВ'ЯЗКОВО передай! Функція сама відфільтрує корти і покаже тільки ті, що доступні на цей час.",
           },
         },
         required: ["date", "duration"],
@@ -1374,17 +1350,21 @@ async function callOpenAI(messages, senderId, depth = 0) {
 
         if (toolCall.function.name === "check_court_availability") {
           const dur = args.duration || 60;
-          console.log(`[Bot] Checking availability for ${args.date}, duration ${dur} min`);
+          const prefTime = args.preferred_time || null;
+          console.log(`[Bot] Checking availability for ${args.date}, duration ${dur} min, preferred_time=${prefTime || "none"}`);
           const avail = await checkCourtAvailability(args.date, dur);
           if (avail.error) {
             result = avail.text;
           } else {
+            const dObj = new Date(args.date + "T12:00:00");
+            const isWeekday = dObj.getDay() !== 0 && dObj.getDay() !== 6;
+
             const enriched = avail.courts.map(court => {
               const courtNum = matchCourtNum(court.court);
               const cfg = COURT_CATALOG.find(c => c.num === courtNum);
               const type = cfg ? (cfg.num === 0 ? "одиночний (1×1)" : "2×2") : "";
               if (!Array.isArray(court.availableBlocks)) {
-                return { court: court.court, type, availableWindows: [] };
+                return { court: court.court, type, availableWindows: [], shorterWindows: [] };
               }
               const allWindows = court.availableBlocks.map(blk => {
                   const [fH, fM] = blk.from.split(":").map(Number);
@@ -1395,7 +1375,6 @@ async function callOpenAI(messages, senderId, depth = 0) {
               const windows = allWindows
                 .filter(w => w.windowMinutes >= dur)
                 .map(({ blk, windowMinutes }) => {
-                  const [fH, fM] = blk.from.split(":").map(Number);
                   const [tH, tM] = blk.to.split(":").map(Number);
                   const latestMins = (tH * 60 + tM) - dur;
                   const latestStart = `${String(Math.floor(latestMins / 60)).padStart(2, "0")}:${String(latestMins % 60).padStart(2, "0")}`;
@@ -1406,37 +1385,94 @@ async function callOpenAI(messages, senderId, depth = 0) {
                     pricePerHour: blk.price, totalPrice,
                   };
                 });
-              const res = { court: court.court, type, availableWindows: windows };
-              if (dur > 60) {
-                const shorter = allWindows
-                  .filter(w => w.windowMinutes >= 60 && w.windowMinutes < dur)
-                  .map(({ blk, windowMinutes }) => {
-                    const totalPrice = Math.round(blk.price * (windowMinutes / 60));
-                    return {
-                      freeFrom: blk.from, freeTo: blk.to, windowMinutes,
-                      pricePerHour: blk.price, totalPrice,
-                    };
-                  });
-                if (shorter.length > 0) res.shorterWindows = shorter;
-              }
-              return res;
+              const shorter = dur > 60 ? allWindows
+                .filter(w => w.windowMinutes >= 60 && w.windowMinutes < dur)
+                .map(({ blk, windowMinutes }) => ({
+                  freeFrom: blk.from, freeTo: blk.to, windowMinutes,
+                  pricePerHour: blk.price, totalPrice: Math.round(blk.price * (windowMinutes / 60)),
+                })) : [];
+              return { court: court.court, type, availableWindows: windows, shorterWindows: shorter };
             });
+
             const available = enriched.filter(c => c.availableWindows.length > 0);
-            const booked = enriched.filter(c => c.availableWindows.length === 0);
-            const bookedNames = booked.map(c => c.court);
-            const availNames = available.map(c => c.court);
-            const obj = {
-              date: avail.date,
-              requestedDuration: dur,
-              totalCourts: enriched.length,
-              availableCount: available.length,
-              instruction: `ПОКАЖИ ВСІ ${available.length} кортів клієнту! Не скорочуй список!`,
-              availableCourts: availNames,
-              courts: available,
-            };
-            if (bookedNames.length > 0) obj.fullyBooked = bookedNames;
-            result = JSON.stringify(obj, null, 2);
-            console.log(`[Bot] Availability result for GPT (${available.length}/${enriched.length} available):\n${result.slice(0, 2000)}`);
+
+            if (prefTime) {
+              const [pH, pM] = prefTime.split(":").map(Number);
+              const prefMins = pH * 60 + (pM || 0);
+
+              const atTime = available.filter(c =>
+                c.availableWindows.some(w => {
+                  const [sfH, sfM] = w.canStartFrom.split(":").map(Number);
+                  const [stH, stM] = w.canStartUntil.split(":").map(Number);
+                  return prefMins >= sfH * 60 + sfM && prefMins <= stH * 60 + stM;
+                })
+              );
+
+              if (atTime.length > 0) {
+                const lines = [`РЕЗУЛЬТАТ: ${atTime.length} кортів ДОСТУПНІ о ${prefTime} на ${dur} хвилин!\n`];
+                lines.push(`ІНСТРУКЦІЯ: Покажи клієнту ВСІ ${atTime.length} кортів нижче! НЕ скорочуй список!\n`);
+                for (const c of atTime) {
+                  const w = c.availableWindows.find(w => {
+                    const [sfH, sfM] = w.canStartFrom.split(":").map(Number);
+                    const [stH, stM] = w.canStartUntil.split(":").map(Number);
+                    return prefMins >= sfH * 60 + sfM && prefMins <= stH * 60 + stM;
+                  });
+                  const isPromo = isWeekday && pH < 17 && c.type !== "одиночний (1×1)";
+                  lines.push(`- ${c.court} (${c.type}): о ${prefTime}, ціна ${w.totalPrice} грн за ${dur} хв${isPromo ? " 🔥 акція: 2 год за ціною 1!" : ""}`);
+                }
+                const notAtTime = available.filter(c => !atTime.includes(c));
+                if (notAtTime.length > 0) {
+                  lines.push(`\nТакож доступні (але НЕ о ${prefTime}):`);
+                  for (const c of notAtTime) {
+                    const w = c.availableWindows[0];
+                    lines.push(`- ${c.court}: ${w.canStartFrom}–${w.canStartUntil}, ${w.totalPrice} грн`);
+                  }
+                }
+                result = lines.join("\n");
+              } else {
+                const lines = [`РЕЗУЛЬТАТ: О ${prefTime} ЖОДЕН корт не доступний на ${dur} хвилин.\n`];
+                lines.push(`ІНСТРУКЦІЯ: Покажи 2-3 найближчих варіанти до ${prefTime}. НЕ показуй всі 10!\n`);
+                const scored = [];
+                for (const c of available) {
+                  for (const w of c.availableWindows) {
+                    const [sfH, sfM] = w.canStartFrom.split(":").map(Number);
+                    const [stH, stM] = w.canStartUntil.split(":").map(Number);
+                    const closestStart = Math.max(sfH * 60 + sfM, Math.min(prefMins, stH * 60 + stM));
+                    const dist = Math.abs(closestStart - prefMins);
+                    const closestTime = `${String(Math.floor(closestStart / 60)).padStart(2, "0")}:${String(closestStart % 60).padStart(2, "0")}`;
+                    scored.push({ court: c.court, type: c.type, closestTime, dist, totalPrice: w.totalPrice, canStartFrom: w.canStartFrom, canStartUntil: w.canStartUntil });
+                  }
+                }
+                scored.sort((a, b) => a.dist - b.dist);
+                const top = scored.slice(0, 3);
+                lines.push("Найближчі варіанти:");
+                for (const s of top) {
+                  const isPromo = isWeekday && parseInt(s.closestTime) < 17 && s.type !== "одиночний (1×1)";
+                  lines.push(`- ${s.court}: о ${s.closestTime} (можна з ${s.canStartFrom} до ${s.canStartUntil}), ${s.totalPrice} грн${isPromo ? " 🔥 акція" : ""}`);
+                }
+                result = lines.join("\n");
+              }
+            } else {
+              const lines = [`РЕЗУЛЬТАТ: ${available.length} з ${enriched.length} кортів доступні на ${dur} хвилин.\n`];
+              lines.push(`ІНСТРУКЦІЯ: Покажи ВСІ ${available.length} кортів клієнту! НЕ скорочуй!\n`);
+              for (const c of available) {
+                for (const w of c.availableWindows) {
+                  const isPromo = isWeekday && parseInt(w.canStartFrom) < 17 && c.type !== "одиночний (1×1)";
+                  lines.push(`- ${c.court} (${c.type}): ${w.canStartFrom}–${w.canStartUntil}, ${w.totalPrice} грн за ${dur} хв${isPromo ? " 🔥 акція: 2 год за ціною 1!" : ""}`);
+                }
+                if (c.shorterWindows && c.shorterWindows.length > 0) {
+                  for (const sw of c.shorterWindows) {
+                    lines.push(`  ↳ коротший варіант: ${sw.freeFrom}–${sw.freeTo} (${sw.windowMinutes} хв), ${sw.totalPrice} грн`);
+                  }
+                }
+              }
+              const booked = enriched.filter(c => c.availableWindows.length === 0);
+              if (booked.length > 0) {
+                lines.push(`\nПовністю зайняті: ${booked.map(c => c.court).join(", ")}`);
+              }
+              result = lines.join("\n");
+            }
+            console.log(`[Bot] Availability result for GPT:\n${result.slice(0, 2000)}`);
           }
           if (!avail.error) setFollowup(senderId, "court_shown");
         } else if (toolCall.function.name === "create_lead") {
