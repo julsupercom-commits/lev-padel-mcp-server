@@ -889,7 +889,8 @@ Android: https://bit.ly/4zMFqZg
 Якщо функція каже "7 кортів ДОСТУПНІ о 13:00" — покажи ВСІ 7!
 Якщо функція каже "о 13:00 ЖОДЕН корт не доступний" — покажи 2-3 найближчі варіанти з результату!
 
-⚠️⚠️ КРИТИЧНО: НЕ рахуй ціну самостійно! Бери totalPrice як є!
+⚠️⚠️ КРИТИЧНО: НЕ рахуй ціну самостійно! Бери totalPrice як є! Він ВЖЕ враховує акцію "2 год за ціною 1"!
+⚠️⚠️ КРИТИЧНО: Коли пишеш "До оплати: [СУМА] грн" — бери ТІЛЬКИ totalPrice з результату! Якщо була акція і totalPrice = 1100, пиши 1100, НЕ 2200!
 ⚠️⚠️ КРИТИЧНО: НЕ бронюй на час, якого НЕ БУЛО в результатах!
 ⚠️⚠️ КРИТИЧНО: Коли клієнт обирає корт — переконайся що він БУВ У СПИСКУ!
 3. Клієнт обрав → запитай контакти: «Щоб зафіксувати — скиньте прізвище, ім'я та номер телефону 😊 І підкажіть, звідки ви про нас дізнались? (Instagram, Google, друзі порадили, інше)»
@@ -1233,7 +1234,7 @@ create_lead з notes = "Instagram DM | НОВАЧОК з реклами. Пер�
 5. Якщо клієнт питає «куди платити» — продублюй реквізити
 6. НІКОЛИ не включай вартість тренера в суму бронювання корту! Тренер = тільки адмін
 7. При ОРЕНДІ КОРТУ — ракетки/м'ячі окремо на рецепції. При ТРЕНУВАННІ З ТРЕНЕРОМ — ракетки та м'ячі ВХОДЯТЬ у вартість тренування!
-8. Сума бронювання = totalPrice з check_court_availability. НЕ рахуй сам! totalPrice ВЖЕ враховує тривалість! Просто бери цю цифру як є!
+8. Сума бронювання = totalPrice з check_court_availability. НЕ рахуй сам! totalPrice ВЖЕ враховує тривалість І акцію "2 год за ціною 1"! Якщо акція — totalPrice = ціна за 1 годину. Просто бери цю цифру як є!
 9. ⚠️ Якщо клієнт хоче ТРЕНЕРА — НІКОЛИ не викликай check_court_availability! Не показуй корти, не пропонуй години! ТІЛЬКИ збирай ім'я + телефон → create_lead. Тренер сам підбере корт і час. Навіть якщо клієнт також хоче погратись без тренера — все в одну заявку, адмін розбереться!
 12. ⚠️ МОВА: НІКОЛИ не вживай слово «часи» (наприклад «доступні часи», «вільні часи»). Замість цього кажи «години», «вільні години», «доступні години» або «проміжки часу». Слово «часи» дратує клієнтів!
 11. ⚠️⚠️ КРИТИЧНО: Бронюй ТІЛЬКИ корти, які були у результатах check_court_availability! Якщо корт НЕ з'явився у списку доступних — він ЗАЙНЯТИЙ! НЕ бронюй його, навіть якщо клієнт просить саме цей корт! Скажи: «Цей корт зайнятий на цей час 😔 Ось доступні варіанти:» і покажи список вільних кортів ще раз. НІКОЛИ не вигадуй доступність корту — довіряй ТІЛЬКИ даним з check_court_availability!`;
@@ -1372,17 +1373,20 @@ async function callOpenAI(messages, senderId, depth = 0) {
                   const windowMinutes = (tH * 60 + tM) - (fH * 60 + fM);
                   return { blk, windowMinutes };
               });
+              const peakFrom = cfg ? (cfg.peakFrom || 17) : 17;
               const windows = allWindows
                 .filter(w => w.windowMinutes >= dur)
                 .map(({ blk, windowMinutes }) => {
+                  const [fH] = blk.from.split(":").map(Number);
                   const [tH, tM] = blk.to.split(":").map(Number);
                   const latestMins = (tH * 60 + tM) - dur;
                   const latestStart = `${String(Math.floor(latestMins / 60)).padStart(2, "0")}:${String(latestMins % 60).padStart(2, "0")}`;
-                  const totalPrice = Math.round(blk.price * (dur / 60));
+                  const isPromo = isWeekday && dur === 120 && fH < peakFrom && type === "2×2";
+                  const totalPrice = isPromo ? blk.price : Math.round(blk.price * (dur / 60));
                   return {
                     freeFrom: blk.from, freeTo: blk.to, windowMinutes,
                     canStartFrom: blk.from, canStartUntil: latestStart,
-                    pricePerHour: blk.price, totalPrice,
+                    pricePerHour: blk.price, totalPrice, isPromo,
                   };
                 });
               const shorter = dur > 60 ? allWindows
@@ -1410,28 +1414,27 @@ async function callOpenAI(messages, senderId, depth = 0) {
 
               if (atTime.length > 0) {
                 const lines = [`РЕЗУЛЬТАТ: ${atTime.length} кортів ДОСТУПНІ о ${prefTime} на ${dur} хвилин!\n`];
-                lines.push(`ІНСТРУКЦІЯ: Покажи клієнту ВСІ ${atTime.length} кортів нижче! НЕ скорочуй список!\n`);
+                lines.push(`ІНСТРУКЦІЯ: Покажи клієнту ВСІ ${atTime.length} кортів нижче! НЕ скорочуй список! Ціна вже ПРАВИЛЬНА — просто бери як є!\n`);
                 for (const c of atTime) {
                   const w = c.availableWindows.find(w => {
                     const [sfH, sfM] = w.canStartFrom.split(":").map(Number);
                     const [stH, stM] = w.canStartUntil.split(":").map(Number);
                     return prefMins >= sfH * 60 + sfM && prefMins <= stH * 60 + stM;
                   });
-                  const isPromo = isWeekday && pH < 17 && c.type !== "одиночний (1×1)";
-                  lines.push(`- ${c.court} (${c.type}): о ${prefTime}, ціна ${w.totalPrice} грн за ${dur} хв${isPromo ? " 🔥 акція: 2 год за ціною 1!" : ""}`);
+                  lines.push(`- ${c.court} (${c.type}): о ${prefTime}, ціна ${w.totalPrice} грн за ${dur} хв${w.isPromo ? " 🔥 акція: 2 год за ціною 1!" : ""}`);
                 }
                 const notAtTime = available.filter(c => !atTime.includes(c));
                 if (notAtTime.length > 0) {
                   lines.push(`\nТакож доступні (але НЕ о ${prefTime}):`);
                   for (const c of notAtTime) {
                     const w = c.availableWindows[0];
-                    lines.push(`- ${c.court}: ${w.canStartFrom}–${w.canStartUntil}, ${w.totalPrice} грн`);
+                    lines.push(`- ${c.court}: ${w.canStartFrom}–${w.canStartUntil}, ${w.totalPrice} грн${w.isPromo ? " 🔥 акція" : ""}`);
                   }
                 }
                 result = lines.join("\n");
               } else {
                 const lines = [`РЕЗУЛЬТАТ: О ${prefTime} ЖОДЕН корт не доступний на ${dur} хвилин.\n`];
-                lines.push(`ІНСТРУКЦІЯ: Покажи 2-3 найближчих варіанти до ${prefTime}. НЕ показуй всі 10!\n`);
+                lines.push(`ІНСТРУКЦІЯ: Покажи 2-3 найближчих варіанти до ${prefTime}. НЕ показуй всі 10! Ціна вже ПРАВИЛЬНА!\n`);
                 const scored = [];
                 for (const c of available) {
                   for (const w of c.availableWindows) {
@@ -1440,25 +1443,23 @@ async function callOpenAI(messages, senderId, depth = 0) {
                     const closestStart = Math.max(sfH * 60 + sfM, Math.min(prefMins, stH * 60 + stM));
                     const dist = Math.abs(closestStart - prefMins);
                     const closestTime = `${String(Math.floor(closestStart / 60)).padStart(2, "0")}:${String(closestStart % 60).padStart(2, "0")}`;
-                    scored.push({ court: c.court, type: c.type, closestTime, dist, totalPrice: w.totalPrice, canStartFrom: w.canStartFrom, canStartUntil: w.canStartUntil });
+                    scored.push({ court: c.court, type: c.type, closestTime, dist, totalPrice: w.totalPrice, isPromo: w.isPromo, canStartFrom: w.canStartFrom, canStartUntil: w.canStartUntil });
                   }
                 }
                 scored.sort((a, b) => a.dist - b.dist);
                 const top = scored.slice(0, 3);
                 lines.push("Найближчі варіанти:");
                 for (const s of top) {
-                  const isPromo = isWeekday && parseInt(s.closestTime) < 17 && s.type !== "одиночний (1×1)";
-                  lines.push(`- ${s.court}: о ${s.closestTime} (можна з ${s.canStartFrom} до ${s.canStartUntil}), ${s.totalPrice} грн${isPromo ? " 🔥 акція" : ""}`);
+                  lines.push(`- ${s.court}: о ${s.closestTime} (можна з ${s.canStartFrom} до ${s.canStartUntil}), ${s.totalPrice} грн${s.isPromo ? " 🔥 акція: 2 год за ціною 1!" : ""}`);
                 }
                 result = lines.join("\n");
               }
             } else {
               const lines = [`РЕЗУЛЬТАТ: ${available.length} з ${enriched.length} кортів доступні на ${dur} хвилин.\n`];
-              lines.push(`ІНСТРУКЦІЯ: Покажи ВСІ ${available.length} кортів клієнту! НЕ скорочуй!\n`);
+              lines.push(`ІНСТРУКЦІЯ: Покажи ВСІ ${available.length} кортів клієнту! НЕ скорочуй! Ціна вже ПРАВИЛЬНА — просто бери як є!\n`);
               for (const c of available) {
                 for (const w of c.availableWindows) {
-                  const isPromo = isWeekday && parseInt(w.canStartFrom) < 17 && c.type !== "одиночний (1×1)";
-                  lines.push(`- ${c.court} (${c.type}): ${w.canStartFrom}–${w.canStartUntil}, ${w.totalPrice} грн за ${dur} хв${isPromo ? " 🔥 акція: 2 год за ціною 1!" : ""}`);
+                  lines.push(`- ${c.court} (${c.type}): ${w.canStartFrom}–${w.canStartUntil}, ${w.totalPrice} грн за ${dur} хв${w.isPromo ? " 🔥 акція: 2 год за ціною 1!" : ""}`);
                 }
                 if (c.shorterWindows && c.shorterWindows.length > 0) {
                   for (const sw of c.shorterWindows) {
